@@ -1,0 +1,13 @@
+{
+    "environments": {
+        "default": {
+            "profile": "develop",
+            "storage_type": "mlflow",
+            "properties": {
+                "workspace_directory": "/Shared/dbx/freeholdforecast",
+                "artifact_location": "dbfs:/Shared/dbx/projects/freeholdforecast"
+            }
+        }
+    },
+    "inplace_jinja_support": false
+}
