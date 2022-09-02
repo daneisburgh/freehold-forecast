@@ -1,14 +1,11 @@
 # Custom section is used to store configurations that might be repetative.
 # Please read YAML documentation for details on how to use substitutions and anchors.
 custom:
-  basic-cluster-props: &basic-cluster-props
-    spark_version: "10.4.x-scala2.12"
-
   basic-static-cluster: &basic-static-cluster
     new_cluster:
       # <<: *basic-cluster-props
-      num_workers: 1
-      node_type_id: "Standard_E4as_v4"
+      num_workers: 0
+      node_type_id: "Standard_E16as_v4"
       spark_version: "10.4.x-scala2.12"
 
 # please note that we're using FUSE reference for config file, hence we're going to load this file using its local FS path
