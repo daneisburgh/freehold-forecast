@@ -46,12 +46,12 @@ class Task(ABC):
             cluster_name = self.spark.conf.get("spark.databricks.clusterUsageTags.clusterName")
             self.logger.info(f"Running on cluster {cluster_name}")
 
-        if init_conf:
-            self.conf = init_conf
-        else:
-            self.conf = self._provide_config()
+        # if init_conf:
+        #     self.conf = init_conf
+        # else:
+        #     self.conf = self._provide_config()
 
-        self._log_conf()
+        # self._log_conf()
 
     @staticmethod
     def _prepare_spark(spark) -> SparkSession:
@@ -105,6 +105,8 @@ class Task(ABC):
         )
         logging.getLogger("asyncio.events").setLevel(logging.CRITICAL)
         logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(logging.WARNING)
+        logging.getLogger("mlflow.tracking.fluent").setLevel(logging.WARNING)
+        logging.getLogger("pandarallel").setLevel(logging.WARNING)
         logging.getLogger("py4j.java_gateway").setLevel(logging.WARNING)
         return logging.getLogger(self.__class__.__name__)
 

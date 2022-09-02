@@ -55,6 +55,10 @@ def copy_directory_to_storage(container, directory_path):
             copy_file_to_storage(container, os.path.join(r, file), container_client)
 
 
+def date_string(date):
+    return date.strftime("%Y-%m-%d")
+
+
 def download_file(url, save_path):
     with requests.get(url, stream=True) as response:
         response.raise_for_status()

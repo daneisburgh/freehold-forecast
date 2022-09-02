@@ -14,17 +14,20 @@ def get_df_hamilton(landing_directory):
     common_columns = list(set(df_new_format.columns).intersection(df_old_format.columns))
 
     df = pd.concat([df_new_format[common_columns], df_old_format[common_columns]])
-    # df.dropna(thresh=len(df) * 0.75, axis=1, inplace=True)
+    df = df.loc[~df["Book"].str.contains("book", na=False, case=False)]  # filter out header rows
+    df["Book"] = df["Book"].apply(lambda x: str(x).rjust(3, "0"))
+    df["Plat"] = df["Plat"].apply(lambda x: str(x).rjust(4, "0"))
+    df["Parcel"] = df["Parcel"].apply(lambda x: str(x).rjust(4, "0"))
+    df["ParcelID"] = df["ParcelID"].apply(lambda x: str(x).rjust(2, "0"))
+    df["Parid"] = df[["Book", "Plat", "Parcel", "ParcelID"]].apply(lambda x: "".join(x.astype(str)), axis=1)
     df["Building Value"] = df["Building Value"].apply(to_numeric)
     df["Land Value"] = df["Land Value"].apply(to_numeric)
-    df["Parid"] = df[["Book", "Plat", "Parcel"]].apply(lambda x: "".join(x.astype(str)) + "00", axis=1)
-    df = df.loc[df["Year of Sale"] != "YearSale"]
     df["Year of Sale"] = df["Year of Sale"].apply(lambda year: year if year not in [98, 99] else year + 1900)
-    df["last_sale_date"] = pd.to_datetime(df["Year of Sale"], format="%Y")
+    df["Month of Sale"] = df["Month of Sale"].apply(lambda month: month if len(str(month)) == 2 else "0" + str(month))
+    df["last_sale_date"] = pd.to_datetime(
+        df[["Year of Sale", "Month of Sale"]].apply(lambda x: "-".join(x.astype(str)), axis=1), format="%Y-%m"
+    )
     df.sort_values(by="last_sale_date", ascending=True, inplace=True)
-    df.dropna(thresh=len(df) * 0.75, axis=1, inplace=True)
-    df.drop_duplicates(subset=["Parid", "Year of Sale"], keep="last", inplace=True)
-    # df["County"] = "Hamilton"
     return df
 
 
@@ -132,7 +135,7 @@ def get_hamilton_df_old_format(landing_directory):
                 "Book",
                 "Plat",
                 "Parcel",
-                "Multi-owner",
+                "ParcelID",  # was Multi-owner
                 "Tax District",
                 "Owner Name 1",
                 "Owner Name 2",

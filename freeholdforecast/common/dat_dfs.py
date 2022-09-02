@@ -3,12 +3,13 @@ import pandas as pd
 import subprocess
 
 from datetime import datetime
-from freeholdforecast.common.utils import download_file
+from freeholdforecast.common.utils import download_file, make_directory
 
 
 def get_df_dat(county, landing_directory):
     download_urls = {
-        "ohio-clermont": "https://www.clermontauditor.org/wp-content/uploads/PublicAccess/AA407_2021_Final.zip"
+        "ohio-butler": "https://www.butlercountyauditor.org/butler_oh_reports/AA407_files.zip",
+        "ohio-clermont": "https://www.clermontauditor.org/wp-content/uploads/PublicAccess/AA407_2021_Final.zip",
     }
 
     download_url = download_urls[county]
@@ -18,7 +19,7 @@ def get_df_dat(county, landing_directory):
     download_file(download_url, download_file_path)
 
     data_directory = os.path.join(landing_directory, download_file_name.replace(".zip", ""))
-    os.makedirs(data_directory)
+    make_directory(data_directory)
 
     subprocess.run(
         f"unzip {download_file_path} -d {data_directory}".split(),
@@ -26,6 +27,11 @@ def get_df_dat(county, landing_directory):
         stdout=subprocess.DEVNULL,
         stderr=subprocess.STDOUT,
     )
+
+    data_subdirectory = os.path.join(data_directory, os.listdir(data_directory)[0])
+
+    if os.path.isdir(data_subdirectory):
+        data_directory = data_subdirectory
 
     df_parcels = get_df_parcels(data_directory)
     df_asmt = get_df_asmt(data_directory)
@@ -65,7 +71,6 @@ def get_df_dat(county, landing_directory):
     ] + list(rename_columns.values())
 
     df = df[common_columns]
-    # df["County"] = county
     return df
 
 
@@ -610,10 +615,6 @@ def get_df_sales(data_directory):
 
     df_sales["last_sale_date"] = pd.to_datetime(df_sales.Saledt, format="%d-%b-%y").apply(update_invalid_years)
     df_sales.sort_values(by="last_sale_date", ascending=True, inplace=True)
-
-    df_sales["sale_year"] = df_sales.last_sale_date.dt.year
-    df_sales.drop_duplicates(subset=["Parid", "sale_year"], keep="last", inplace=True)
-    df_sales.drop(columns=["sale_year"], inplace=True)
 
     df_sales.Saletype.replace(pd.NA, 0, inplace=True)
     df_sales.Saletype.replace("I", 1, inplace=True)
