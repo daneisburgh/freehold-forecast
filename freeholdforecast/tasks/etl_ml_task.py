@@ -2,6 +2,7 @@ import gc
 import mlflow
 import os
 import pandas as pd
+import pickle
 import psutil
 import random
 
@@ -11,11 +12,11 @@ from datetime import datetime, timedelta
 from imblearn.under_sampling import RandomUnderSampler
 from pandarallel import pandarallel
 from sklearn.metrics import classification_report, confusion_matrix, precision_score, roc_auc_score
-from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import OrdinalEncoder
 
 from freeholdforecast.common.county_dfs import get_df_county
 from freeholdforecast.common.task import Task
-from freeholdforecast.common.static import get_parcel_ready_data
+from freeholdforecast.common.static import get_parcel_prepared_data
 from freeholdforecast.common.utils import (
     copy_directory_to_storage,
     copy_file_to_storage,
@@ -27,6 +28,7 @@ from freeholdforecast.common.utils import (
 
 is_local = os.getenv("APP_ENV") == "local"
 cpu_count = psutil.cpu_count(logical=True)
+total_memory_mb = psutil.virtual_memory().total / 1024 / 1024
 label_names = ["transfer_in_6_months", "transfer_in_12_months", "transfer_in_24_months"]
 
 pandarallel.initialize(nb_workers=cpu_count, progress_bar=is_local, use_memory_fs=False, verbose=1)
@@ -43,79 +45,103 @@ class ETL_ML_Task(Task):
     def launch(self):
         self.logger.info(f"Launching task")
 
-        self._get_df_raw()
-        self._get_df_ready()
-        self._get_df_encoded()
+        self._get_df_raw_encoded()
+        self._get_df_prepared()
 
         for label_name in label_names:
             self._train_model(label_name)
 
         self.logger.info(f"Finished task")
 
-    def _get_df_raw(self):
-        self.logger.info("Retrieving data")
+    def _get_df_raw_encoded(self):
+        self.logger.info("Retrieving and encoding data")
 
-        raw_directory = os.path.join("data", "etl", "raw", self.run_date)
+        raw_directory = os.path.join("data", "etl", self.run_date, self.county, "1-raw")
         make_directory(raw_directory)
 
-        raw_path = os.path.join(raw_directory, self.county + ".gz")
+        raw_path = os.path.join(raw_directory, "raw.gz")
 
         if file_exists(raw_path):
-            self.logger.info("Loading existing data")
+            self.logger.info("Loading existing raw data")
             self.df_raw = pd.read_parquet(
                 raw_path,
             )
-            self.df_raw.last_sale_date = pd.to_datetime(self.df_raw.last_sale_date)
         else:
             self.logger.info("Saving landing data")
-            self.df_raw = get_df_county(self.run_date, self.county)
+            landing_directory = os.path.join("data", "etl", self.run_date, self.county, "0-landing")
+            make_directory(landing_directory)
+            self.df_raw = get_df_county(self.county, landing_directory)
+
             self.logger.info("Saving raw data")
-            self.df_raw.astype(str).to_parquet(raw_path, index=False)
+            self.df_raw.to_parquet(raw_path, index=False)
             copy_file_to_storage("etl", raw_path)
 
-        self.parcel_ids = list(self.df_raw.Parid.unique())
-        self.logger.info(f"Total parcels: {len(self.parcel_ids)}")
+        self.df_raw.last_sale_date = pd.to_datetime(self.df_raw.last_sale_date)
+        self.logger.info(f"Total parcels: {len(self.df_raw.Parid.unique())}")
         self.logger.info(f"Total sales: {len(self.df_raw)}")
 
-        if is_local:
-            self.parcel_ids = random.sample(self.parcel_ids, int(len(self.parcel_ids) * 0.1))
+        encoded_path = os.path.join(raw_directory, "raw-encoded.gz")
 
-        self.logger.info("Successfully retrieved data")
-
-    def _get_df_ready(self):
-        self.logger.info("Preparing data")
-
-        ready_directory = os.path.join("data", "etl", "ready", self.run_date)
-        make_directory(ready_directory)
-
-        ready_path = os.path.join(ready_directory, self.county + ".gz")
-
-        if file_exists(ready_path):
-            self.logger.info("Loading existing data")
-            self.df_ready = pd.read_parquet(
-                ready_path,
+        if file_exists(encoded_path):
+            self.logger.info("Loading existing encoded data")
+            self.df_raw_encoded = pd.read_parquet(
+                encoded_path,
             )
-            self.df_ready.date = pd.to_datetime(self.df_ready.date)
         else:
-            self.df_ready = pd.concat(
-                pd.DataFrame({"Parid": self.parcel_ids})
-                .Parid.parallel_apply(get_parcel_ready_data, args=(self.df_raw.copy(),))
+            self.logger.info("Encoding raw data")
+
+            df_raw_features = self.df_raw.drop(columns=["last_sale_date"])
+            self.ordinal_encoder = OrdinalEncoder()
+            self.ordinal_encoder.fit(df_raw_features)
+            self.df_raw_encoded = pd.DataFrame(
+                self.ordinal_encoder.transform(df_raw_features),
+                columns=df_raw_features.columns,
+                index=df_raw_features.index,
+            )
+            self.df_raw_encoded["last_sale_date"] = self.df_raw["last_sale_date"]
+
+            self.logger.info("Saving encoded data")
+            self.df_raw_encoded.to_parquet(encoded_path, index=False)
+            copy_file_to_storage("etl", encoded_path)
+
+            ordinal_encoder_path = os.path.join(raw_directory, "ordinal-encoder.pkl")
+            with open(ordinal_encoder_path, "wb") as ordinal_encoder_file:
+                pickle.dump(self.ordinal_encoder, ordinal_encoder_file)
+            copy_file_to_storage("etl", ordinal_encoder_path)
+
+    def _get_df_prepared(self):
+        gc.collect()
+        prepared_directory = os.path.join("data", "etl", self.run_date, self.county, "2-prepared")
+        make_directory(prepared_directory)
+
+        prepared_path = os.path.join(prepared_directory, self.county + ".gz")
+
+        if file_exists(prepared_path):
+            self.logger.info("Loading existing prepared data")
+            self.df_prepared = pd.read_parquet(
+                prepared_path,
+            )
+            self.df_prepared.date = pd.to_datetime(self.df_prepared.date)
+        else:
+            self.logger.info("Preparing data")
+            parcel_ids = list(self.df_raw_encoded.Parid.unique())
+
+            if is_local:
+                parcel_ids = random.sample(parcel_ids, int(len(parcel_ids) * 0.1))
+
+            self.df_prepared = pd.concat(
+                pd.DataFrame({"Parid": parcel_ids})
+                .Parid.parallel_apply(get_parcel_prepared_data, args=(self.df_raw_encoded,))
                 .tolist(),
                 copy=False,
+                ignore_index=True,
             )
 
             self.logger.info("Saving prepared data")
-            self.df_ready.to_parquet(ready_path, index=False)
-            copy_file_to_storage("etl", ready_path)
+            self.df_prepared.to_parquet(prepared_path, index=False)
+            copy_file_to_storage("etl", prepared_path)
 
-        if hasattr(self, "df_raw"):
-            del self.df_raw
-
-        gc.collect()
-        self.logger.info("Successfully prepared data")
-
-    def _get_df_encoded(self):
-        self.logger.info("Encoding data")
+        self.logger.info("Splitting data")
 
         test_start_date = datetime.strptime(self.run_date, "%Y-%m-%d")
         test_end_date = test_start_date.replace(year=(test_start_date.year + 2))
@@ -130,35 +156,22 @@ class ETL_ML_Task(Task):
         self.logger.info(f"Train dates: {date_string(train_start_date)} to {date_string(train_end_date)}")
         self.logger.info(f"Test dates: {date_string(test_start_date)} to {date_string(test_end_date)}")
 
-        parcel_ids = self.df_ready.Parid.values
-        parcel_ids_encoder = LabelEncoder()
-        parcel_ids_encoder.fit(parcel_ids)
-
-        df_ready_encoded = self.df_ready.drop(columns=["Parid"]).parallel_apply(LabelEncoder().fit_transform)
-        df_ready_encoded["Parid"] = parcel_ids_encoder.transform(parcel_ids)
-
         date_columns = ["date", "last_sale_date"]
 
-        self.df_train = df_ready_encoded.loc[
-            (self.df_ready.date >= train_start_date) & (self.df_ready.date <= train_end_date)
+        self.df_train = self.df_prepared.loc[
+            (self.df_prepared.date >= train_start_date) & (self.df_prepared.date <= train_end_date)
         ].drop(columns=date_columns)
-        self.df_test = df_ready_encoded.loc[
-            (self.df_ready.date >= test_start_date) & (self.df_ready.date <= test_end_date)
+        self.df_test = self.df_prepared.loc[
+            (self.df_prepared.date >= test_start_date) & (self.df_prepared.date <= test_end_date)
         ].drop(columns=date_columns)
 
         self.X_train = self.df_train.drop(columns=label_names).to_numpy()
         self.X_test = self.df_test.drop(columns=label_names).to_numpy()
 
-        if hasattr(self, "df_ready"):
-            del self.df_ready
-
-        gc.collect()
-        self.logger.info("Successfully encoded data")
 
     def _train_model(self, label_name):
-        self.logger.info(f"Training model for {label_name}")
-
         gc.collect()
+        self.logger.info(f"Training model for {label_name}")
 
         mlflow.set_experiment(f"/Shared/{self.county}")
         mlflow.start_run(run_name=label_name)
@@ -182,16 +195,16 @@ class ETL_ML_Task(Task):
         if not hasattr(self, "models"):
             self.models = {}
 
-        per_model_training_minutes = 30
-        per_model_memory_limit_gb = 8
+        per_model_training_minutes = 10
+        per_model_memory_limit_mb = int(total_memory_mb / cpu_count)
 
-        self.logger.info(f"Training minutes per model task: {per_model_training_minutes}")
-        self.logger.info(f"Memory GB per model task: {per_model_memory_limit_gb}")
+        self.logger.info(f"Minutes per model task: {per_model_training_minutes}")
+        self.logger.info(f"Memory (MB) per model task: {per_model_memory_limit_mb}")
 
         self.models[label_name] = AutoSklearnClassifier(
             time_left_for_this_task=(60 * per_model_training_minutes),
             per_run_time_limit=(60 * 30),
-            memory_limit=(1024 * per_model_memory_limit_gb),
+            memory_limit=per_model_memory_limit_mb,
             n_jobs=cpu_count,
             metric=roc_auc,
             include={"classifier": ["gradient_boosting"]},
@@ -205,10 +218,10 @@ class ETL_ML_Task(Task):
         self.logger = self._prepare_logger()  # reset logger
         self.logger.info("Saving model")
 
-        model_directory = os.path.join("data", "mli", "models", self.run_date, self.county, label_name)
+        model_directory = os.path.join("data", "models", self.run_date, self.county, label_name)
         mlflow.sklearn.log_model(self.models[label_name], model_directory)
         mlflow.sklearn.save_model(self.models[label_name], model_directory)
-        copy_directory_to_storage("mli", model_directory)
+        copy_directory_to_storage("models", model_directory)
 
         self.logger.info(self.models[label_name].sprint_statistics())
 
@@ -243,7 +256,6 @@ class ETL_ML_Task(Task):
             )
 
         mlflow.end_run()
-        self.logger.info(f"Successfully trained model for {label_name}")
 
 
 # if you're using python_wheel_task, you'll need the entrypoint function to be used in setup.py
