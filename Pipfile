@@ -10,7 +10,6 @@ python_version = "3.8"
 freeholdforecast = {editable = true, extras = ["dev"], path = "."}
 
 [scripts]
-install-deps = "pipenv install -e '.[dev]'"
 start-notebook = "jupyter notebook"
 dbx-deploy = "dbx deploy freeholdforecast-etl-ml"
 dbx-launch = "dbx launch freeholdforecast-etl-ml"
