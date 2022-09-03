@@ -16,10 +16,10 @@ def get_df_dat(county, landing_directory):
     download_file_name = download_url.split("/")[-1]
     download_file_path = os.path.join(landing_directory, download_file_name)
 
-    download_file(download_url, download_file_path)
-
     data_directory = os.path.join(landing_directory, download_file_name.replace(".zip", ""))
     make_directory(data_directory)
+
+    download_file(download_url, download_file_path)
 
     subprocess.run(
         f"unzip {download_file_path} -d {data_directory}".split(),

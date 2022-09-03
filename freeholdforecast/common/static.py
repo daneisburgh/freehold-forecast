@@ -20,6 +20,9 @@ def get_parcel_ready_data(parcel_id, df_raw_copy):
             )
         ]
 
+    def is_transfered(date_diff, has_next_sale_date):
+        return str(1 if date_index >= (total_dates - date_diff - 1) and has_next_sale_date else 0)
+
     ready_data = []
     dates_since_last_sale = 0
 
@@ -40,17 +43,17 @@ def get_parcel_ready_data(parcel_id, df_raw_copy):
         for date_index, date in enumerate(dates):
             if date_index < total_dates - 1:
                 ready_data_object = {
-                    "transfer_in_6_months": (1 if date_index >= (total_dates - 7) and has_next_sale_date else 0),
-                    "transfer_in_12_months": (1 if date_index >= (total_dates - 13) and has_next_sale_date else 0),
-                    "transfer_in_24_months": (1 if date_index >= (total_dates - 25) and has_next_sale_date else 0),
+                    "transfer_in_6_months": is_transfered(6, has_next_sale_date),
+                    "transfer_in_12_months": is_transfered(12, has_next_sale_date),
+                    "transfer_in_24_months": is_transfered(24, has_next_sale_date),
                     "date": date.replace(day=1),
-                    "year": date.year,
-                    "month": date.month,
-                    "dates_since_last_sale": dates_since_last_sale,
+                    "year": str(date.year),
+                    "month": str(date.year),
+                    "dates_since_last_sale": str(dates_since_last_sale),
                 }
 
                 for column in list(df_raw_copy.columns):
-                    ready_data_object[column] = row[column]
+                    ready_data_object[column] = str(row[column])
 
                 ready_data.append(ready_data_object)
                 dates_since_last_sale += 1
