@@ -25,23 +25,24 @@ from freeholdforecast.common.utils import (
 )
 
 
-cpu_count = psutil.cpu_count(logical=True)
 is_local = os.getenv("APP_ENV") == "local"
+cpu_count = psutil.cpu_count(logical=True)
 label_names = ["transfer_in_6_months", "transfer_in_12_months", "transfer_in_24_months"]
 
-pandarallel.initialize(nb_workers=cpu_count, progress_bar=is_local, use_memory_fs=False)
+pandarallel.initialize(nb_workers=cpu_count, progress_bar=is_local, use_memory_fs=False, verbose=1)
 
 
 class ETL_ML_Task(Task):
     def __init__(self):
         super().__init__()
-        self.county = "ohio-clermont"
+        self.county = "ohio-hamilton"
         # self.run_date = date_string(datetime.now().replace(day=1))
         self.run_date = date_string((datetime.now() - timedelta(365 * 6)).replace(day=1))
         self.logger.info(f"Initialized task for {self.county} with run date {self.run_date}")
 
     def launch(self):
         self.logger.info(f"Launching task")
+
         self._get_df_raw()
         self._get_df_ready()
         self._get_df_encoded()
@@ -61,13 +62,15 @@ class ETL_ML_Task(Task):
 
         if file_exists(raw_path):
             self.logger.info("Loading existing data")
-            self.df_raw = pd.read_csv(raw_path, low_memory=False)
+            self.df_raw = pd.read_parquet(
+                raw_path,
+            )
             self.df_raw.last_sale_date = pd.to_datetime(self.df_raw.last_sale_date)
         else:
             self.logger.info("Saving landing data")
             self.df_raw = get_df_county(self.run_date, self.county)
             self.logger.info("Saving raw data")
-            self.df_raw.to_csv(raw_path, index=False)
+            self.df_raw.astype(str).to_parquet(raw_path, index=False)
             copy_file_to_storage("etl", raw_path)
 
         self.parcel_ids = list(self.df_raw.Parid.unique())
@@ -89,7 +92,9 @@ class ETL_ML_Task(Task):
 
         if file_exists(ready_path):
             self.logger.info("Loading existing data")
-            self.df_ready = pd.read_csv(ready_path, low_memory=False)
+            self.df_ready = pd.read_parquet(
+                ready_path,
+            )
             self.df_ready.date = pd.to_datetime(self.df_ready.date)
         else:
             self.df_ready = pd.concat(
@@ -100,14 +105,13 @@ class ETL_ML_Task(Task):
             )
 
             self.logger.info("Saving prepared data")
-            self.df_ready.to_csv(ready_path, index=False)
+            self.df_ready.to_parquet(ready_path, index=False)
             copy_file_to_storage("etl", ready_path)
 
         if hasattr(self, "df_raw"):
             del self.df_raw
 
         gc.collect()
-
         self.logger.info("Successfully prepared data")
 
     def _get_df_encoded(self):
@@ -130,9 +134,7 @@ class ETL_ML_Task(Task):
         parcel_ids_encoder = LabelEncoder()
         parcel_ids_encoder.fit(parcel_ids)
 
-        df_ready_encoded = (
-            self.df_ready.drop(columns=["Parid"]).astype(str).parallel_apply(LabelEncoder().fit_transform)
-        )
+        df_ready_encoded = self.df_ready.drop(columns=["Parid"]).parallel_apply(LabelEncoder().fit_transform)
         df_ready_encoded["Parid"] = parcel_ids_encoder.transform(parcel_ids)
 
         date_columns = ["date", "last_sale_date"]
@@ -151,7 +153,6 @@ class ETL_ML_Task(Task):
             del self.df_ready
 
         gc.collect()
-
         self.logger.info("Successfully encoded data")
 
     def _train_model(self, label_name):
@@ -178,16 +179,19 @@ class ETL_ML_Task(Task):
         log_y_label_stats("Train res labels", y_train_res)
         log_y_label_stats("Test labels", y_test)
 
-        task_minutes = 30
-        model_memory_limit_gb = 8
-
         if not hasattr(self, "models"):
             self.models = {}
 
+        per_model_training_minutes = 30
+        per_model_memory_limit_gb = 8
+
+        self.logger.info(f"Training minutes per model task: {per_model_training_minutes}")
+        self.logger.info(f"Memory GB per model task: {per_model_memory_limit_gb}")
+
         self.models[label_name] = AutoSklearnClassifier(
-            time_left_for_this_task=(60 * task_minutes),
+            time_left_for_this_task=(60 * per_model_training_minutes),
             per_run_time_limit=(60 * 30),
-            memory_limit=(1024 * model_memory_limit_gb),
+            memory_limit=(1024 * per_model_memory_limit_gb),
             n_jobs=cpu_count,
             metric=roc_auc,
             include={"classifier": ["gradient_boosting"]},

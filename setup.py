@@ -16,6 +16,7 @@ PACKAGE_REQUIREMENTS = [
     "mlflow",
     "pandas",
     "pandarallel",
+    "pyarrow",
     "pyyaml",
 ]
 
