@@ -43,8 +43,8 @@ class Task(ABC):
             self.spark = self._prepare_spark(spark)
             self.dbutils = self.get_dbutils()
 
-            cluster_name = self.spark.conf.get("spark.databricks.clusterUsageTags.clusterName")
-            self.logger.info(f"Running on cluster {cluster_name}")
+            # cluster_name = self.spark.conf.get("spark.databricks.clusterUsageTags.clusterName")
+            # self.logger.info(f"Running on cluster {cluster_name}")
 
         # if init_conf:
         #     self.conf = init_conf
@@ -65,8 +65,8 @@ class Task(ABC):
 
         if not utils:
             self.logger.warn("No DBUtils defined in the runtime")
-        else:
-            self.logger.info("DBUtils class initialized")
+        # else:
+        #     self.logger.info("DBUtils class initialized")
 
         return utils
 
