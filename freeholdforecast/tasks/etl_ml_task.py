@@ -7,7 +7,7 @@ import psutil
 import random
 
 from autosklearn.classification import AutoSklearnClassifier
-from autosklearn.metrics import roc_auc
+from autosklearn.metrics import average_precision
 from datetime import datetime, timedelta
 from imblearn.under_sampling import RandomUnderSampler
 from pandarallel import pandarallel
@@ -127,7 +127,7 @@ class ETL_ML_Task(Task):
             parcel_ids = list(self.df_raw_encoded.Parid.unique())
 
             if is_local:
-                parcel_ids = random.sample(parcel_ids, int(len(parcel_ids) * 0.1))
+                parcel_ids = random.sample(parcel_ids, int(len(parcel_ids) * 0.25))
 
             self.df_prepared = pd.concat(
                 pd.DataFrame({"Parid": parcel_ids})
@@ -168,7 +168,6 @@ class ETL_ML_Task(Task):
         self.X_train = self.df_train.drop(columns=label_names).to_numpy()
         self.X_test = self.df_test.drop(columns=label_names).to_numpy()
 
-
     def _train_model(self, label_name):
         gc.collect()
         self.logger.info(f"Training model for {label_name}")
@@ -179,7 +178,7 @@ class ETL_ML_Task(Task):
         y_train = self.df_train[label_name].values
         y_test = self.df_test[label_name].values
 
-        rus = RandomUnderSampler(sampling_strategy=0.2)
+        rus = RandomUnderSampler(sampling_strategy=0.1)
         X_train_res, y_train_res = rus.fit_resample(self.X_train, y_train)
 
         def log_y_label_stats(label_name, label_values):
@@ -195,25 +194,27 @@ class ETL_ML_Task(Task):
         if not hasattr(self, "models"):
             self.models = {}
 
-        per_model_training_minutes = 10
+        fit_minutes = 120
+        per_model_fit_minutes = 60
         per_model_memory_limit_mb = int(total_memory_mb / cpu_count)
 
-        self.logger.info(f"Minutes per model task: {per_model_training_minutes}")
-        self.logger.info(f"Memory (MB) per model task: {per_model_memory_limit_mb}")
+        self.logger.info(f"Fit minutes: {fit_minutes}")
+        self.logger.info(f"Per model fit minutes: {per_model_fit_minutes}")
+        self.logger.info(f"Per model memory limit (MB): {per_model_memory_limit_mb}")
 
         self.models[label_name] = AutoSklearnClassifier(
-            time_left_for_this_task=(60 * per_model_training_minutes),
-            per_run_time_limit=(60 * 30),
+            time_left_for_this_task=(60 * fit_minutes),
+            per_run_time_limit=(60 * per_model_fit_minutes),
             memory_limit=per_model_memory_limit_mb,
             n_jobs=cpu_count,
-            metric=roc_auc,
+            metric=average_precision,
             include={"classifier": ["gradient_boosting"]},
             initial_configurations_via_metalearning=0,
         )
 
         self.logger.info("Fitting model")
 
-        self.models[label_name].fit(X_train_res, y_train_res, dataset_name=self.county)
+        self.models[label_name].fit(X_train_res, y_train_res)
 
         self.logger = self._prepare_logger()  # reset logger
         self.logger.info("Saving model")
