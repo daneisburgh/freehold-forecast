@@ -10,8 +10,8 @@ python_version = "3.8"
 freeholdforecast = {editable = true, extras = ["dev"], path = "."}
 
 [scripts]
-start-notebook = "jupyter notebook"
-dbx-deploy = "dbx deploy freeholdforecast-etl-ml"
-dbx-launch = "dbx launch freeholdforecast-etl-ml"
-dbx-deploy-assets = "dbx deploy freeholdforecast-etl-ml --assets-only"
-dbx-launch-assets = "dbx launch freeholdforecast-etl-ml --from-assets"
+notebook = "jupyter notebook"
+deploy = "dbx deploy freeholdforecast-etl-ml"
+launch = "dbx launch freeholdforecast-etl-ml"
+deploy-assets = "dbx deploy freeholdforecast-etl-ml --assets-only"
+launch-assets = "dbx launch freeholdforecast-etl-ml --from-assets"
