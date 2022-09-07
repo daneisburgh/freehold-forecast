@@ -65,7 +65,7 @@ def get_parcel_prepared_data(parcel_id, df_raw_encoded):
     return pd.DataFrame(prepared_data)
 
 
-def train_model(task, label_name, model_directory):
+def train_model(task, label_name, model_directory, X_train, y_train, X_test, y_test):
     import mlflow
     import os
     import shutil
@@ -95,12 +95,10 @@ def train_model(task, label_name, model_directory):
             include={"classifier": ["gradient_boosting"]},
             initial_configurations_via_metalearning=0,
         )
-        automl.fit(task.X_train_res, task.y_train_res)
+        automl.fit(X_train, y_train)
 
         task.logger = task._prepare_logger()  # reset logger
         task.logger.info(f"Saving model for {label_name}")
-
-        task.logger.info(model_directory)
 
         if os.path.exists(model_directory):
             shutil.rmtree(model_directory)
@@ -109,11 +107,11 @@ def train_model(task, label_name, model_directory):
         mlflow.sklearn.save_model(automl, model_directory)
         # copy_directory_to_storage("models", model_directory)
 
-        y_pred = automl.predict(task.X_test)
+        y_pred = automl.predict(X_test)
 
-        tn, fp, fn, tp = confusion_matrix(task.y_test, y_pred).ravel()
-        precision_value = precision_score(task.y_test, y_pred)
-        roc_auc_value = roc_auc_score(task.y_test, y_pred)
+        tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
+        precision_value = precision_score(y_test, y_pred)
+        roc_auc_value = roc_auc_score(y_test, y_pred)
 
         task.mlflow_client.log_metric(mlflow_run_id, "tp", tp)
         task.mlflow_client.log_metric(mlflow_run_id, "fp", fp)

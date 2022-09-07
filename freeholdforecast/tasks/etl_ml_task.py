@@ -5,7 +5,6 @@ import pandas as pd
 import pickle
 import psutil
 import random
-import time
 
 from datetime import datetime, timedelta
 from imblearn.under_sampling import RandomUnderSampler
@@ -174,12 +173,12 @@ class ETL_ML_Task(Task):
             "transfer_in_24_months",
         ]
 
-        self.X_train = self.df_train.drop(columns=label_names).to_numpy()
-        self.X_test = self.df_test.drop(columns=label_names).to_numpy()
+        X_train = self.df_train.drop(columns=label_names).to_numpy()
+        X_test = self.df_test.drop(columns=label_names).to_numpy()
 
         self.fit_jobs = 2 if is_local else int(cpu_count / len(label_names))
-        self.fit_minutes = 15
-        self.per_job_fit_minutes = 10
+        self.fit_minutes = 60
+        self.per_job_fit_minutes = 30
         self.per_job_fit_memory_limit_mb = (4 if is_local else 8) * 1024
 
         self.logger.info(f"Total labels: {len(label_names)}")
@@ -200,11 +199,11 @@ class ETL_ML_Task(Task):
         for label_name in label_names:
             self.logger.info(get_section_divider(f"Start init AutoML for {label_name}"))
 
-            self.y_train = self.df_train[label_name].values
-            self.y_test = self.df_test[label_name].values
+            y_train = self.df_train[label_name].values
+            y_test = self.df_test[label_name].values
 
             rus = RandomUnderSampler(sampling_strategy=0.1)
-            self.X_train_res, self.y_train_res = rus.fit_resample(self.X_train, self.y_train)
+            X_train_res, y_train_res = rus.fit_resample(X_train, y_train)
 
             def log_y_label_stats(label_name, label_values):
                 total_labels = len(label_values)
@@ -212,9 +211,9 @@ class ETL_ML_Task(Task):
                 p_labels = sum_labels / total_labels * 100
                 self.logger.info(f"{label_name}: {sum_labels}/{total_labels} ({p_labels:.2f}%)")
 
-            log_y_label_stats(f"Train labels", self.y_train)
-            log_y_label_stats(f"Train res labels", self.y_train_res)
-            log_y_label_stats(f"Test labels", self.y_test)
+            log_y_label_stats(f"Train labels", y_train)
+            log_y_label_stats(f"Train res labels", y_train_res)
+            log_y_label_stats(f"Test labels", y_test)
 
             model_directories[label_name] = os.path.join("data", "models", self.run_date, self.county, label_name)
 
@@ -224,13 +223,16 @@ class ETL_ML_Task(Task):
                     self,
                     label_name,
                     model_directories[label_name],
+                    X_train_res,
+                    y_train_res,
+                    X_test,
+                    y_test,
                 ),
             )
             procs.append(proc)
             self.logger.info(get_section_divider(f"End init AutoML for {label_name}"))
 
         for proc in procs:
-            time.sleep(30)
             proc.start()
 
         for proc in procs:
@@ -244,29 +246,28 @@ class ETL_ML_Task(Task):
 
                 self.logger.info(f"" + model.sprint_statistics())
 
-                y_pred = model.predict(self.X_test)
-                y_pred_proba = model.predict_proba(self.X_test)
+                y_pred = model.predict(X_test)
+                y_pred_proba = model.predict_proba(X_test)
+                y_test = self.df_test[label_name].values
 
                 log_y_label_stats(f"Pred labels", y_pred)
 
-                tn, fp, fn, tp = confusion_matrix(self.y_test, y_pred).ravel()
-                precision_value = precision_score(self.y_test, y_pred)
-                roc_auc_value = roc_auc_score(self.y_test, y_pred)
+                tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
+                precision_value = precision_score(y_test, y_pred)
+                roc_auc_value = roc_auc_score(y_test, y_pred)
 
                 self.logger.info(f"Precision: {precision_value:.2f}")
                 self.logger.info(f"ROC AUC: {roc_auc_value:.2f}")
-                self.logger.info(f"Classification report:\n" + classification_report(self.y_test, y_pred))
+                self.logger.info(f"Classification report:\n" + classification_report(y_test, y_pred))
                 self.logger.info(
                     f"Confusion matrix:\n"
-                    + pd.crosstab(
-                        self.y_test, y_pred, rownames=["Actual"], colnames=["Predicted"], margins=True
-                    ).to_string()
+                    + pd.crosstab(y_test, y_pred, rownames=["Actual"], colnames=["Predicted"], margins=True).to_string()
                 )
 
                 for pred_proba in [0.5, 0.6, 0.7, 0.8, 0.9]:
                     y_pred = [1 if y[1] > pred_proba else 0 for y in y_pred_proba]
-                    tn, fp, fn, tp = confusion_matrix(self.y_test, y_pred).ravel()
-                    precision_value = precision_score(self.y_test, y_pred)
+                    tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
+                    precision_value = precision_score(y_test, y_pred)
                     self.logger.info(
                         f"Precision proba {pred_proba}: {precision_value:.2f} (tp={tp}, fp={fp}, tn={tn}, fn={fn})"
                     )
