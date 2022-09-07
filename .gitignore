@@ -43,3 +43,6 @@ data/
 
 # notebook checkpoints
 .ipynb_checkpoints/
+
+# temp files
+.tmp/
