@@ -105,7 +105,7 @@ def train_model(task, label_name, model_directory, X_train, y_train, X_test, y_t
 
         mlflow.sklearn.log_model(automl, model_directory)
         mlflow.sklearn.save_model(automl, model_directory)
-        # copy_directory_to_storage("models", model_directory)
+        copy_directory_to_storage("models", model_directory)
 
         y_pred = automl.predict(X_test)
 
