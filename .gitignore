@@ -41,8 +41,9 @@ mlruns/
 # data files
 data/
 
-# notebook checkpoints
+# notebook checkpoints and trash
 .ipynb_checkpoints/
+.Trash-*/
 
 # temp files
 .tmp/
