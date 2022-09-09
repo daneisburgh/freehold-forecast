@@ -9,15 +9,16 @@ from setuptools import find_packages, setup
 from freeholdforecast import __version__
 
 PACKAGE_REQUIREMENTS = [
-    "auto-sklearn",
-    "azure-storage-blob",
-    "imbalanced-learn",
-    "ipywidgets",
-    "mlflow",
-    "pandas",
-    "pandarallel",
-    "pyarrow",
-    "pyyaml",
+    "auto-sklearn==0.14.7",
+    "azure-storage-blob==12.13.1",
+    "imbalanced-learn==0.8.1",
+    "ipywidgets==8.0.2",
+    "mlflow==1.28.0",
+    "pandas==1.4.4",
+    "pandarallel==1.6.3",
+    "pyarrow==9.0.0",
+    "pyyaml==6.0",
+    "scikit-learn==0.24.1"
 ]
 
 DEV_REQUIREMENTS = [
