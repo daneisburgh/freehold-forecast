@@ -1,11 +1,12 @@
-import os
-
+from freeholdforecast.common.attom_dfs import get_df_attom
 from freeholdforecast.common.dat_dfs import get_df_dat
 from freeholdforecast.common.hamilton_dfs import get_df_hamilton
 
 
 def get_df_county(county, landing_directory):
-    if county in ["ohio-butler", "ohio-clermont"]:
+    if county in ["CAVE", "CODO", "INMA", "minnesota-ramsey", "NCME"]:
+        df = get_df_attom(landing_directory)
+    elif county in ["ohio-butler", "ohio-clermont"]:
         df = get_df_dat(county, landing_directory)
     elif county == "ohio-hamilton":
         df = get_df_hamilton(landing_directory)
