@@ -11,7 +11,13 @@ from imblearn.under_sampling import RandomUnderSampler
 from mlflow.tracking import MlflowClient
 from multiprocessing import Process
 from pandarallel import pandarallel
-from sklearn.metrics import classification_report, confusion_matrix, precision_score, roc_auc_score
+from sklearn.metrics import (
+    classification_report,
+    confusion_matrix,
+    average_precision_score,
+    precision_score,
+    roc_auc_score,
+)
 from sklearn.preprocessing import OrdinalEncoder
 
 from freeholdforecast.common.county_dfs import get_df_county
@@ -37,10 +43,27 @@ pandarallel.initialize(
 class ETL_ML_Task(Task):
     def __init__(self):
         super().__init__()
-        self.county = "ohio-hamilton"
+        self.county = "NCME"
         # self.run_date = date_string(datetime.now().replace(day=1))
         self.run_date = date_string((datetime.now() - timedelta(365 * 6)).replace(day=1))
-        self.logger.info(f"Initialized task for {self.county} with run date {self.run_date}")
+        self.logger.info(f"Initializing task for {self.county} with run date {self.run_date}")
+
+        self.test_start_date = datetime.strptime(self.run_date, "%Y-%m-%d")
+        # test_end_date = test_start_date.replace(year=(test_start_date.year + 2))
+        self.test_end_date = self.test_start_date
+
+        test_is_same_year = self.test_start_date.month > 1
+        self.train_end_date = self.test_start_date.replace(
+            year=(self.test_start_date.year if test_is_same_year else self.test_start_date.year - 1),
+            month=(self.test_start_date.month - 1 if test_is_same_year else 12),
+        )
+
+        self.train_years = 5
+        self.train_start_date = self.train_end_date.replace(year=(self.train_end_date.year - self.train_years))
+
+        self.logger.info(f"Train years: {self.train_years}")
+        self.logger.info(f"Train dates: {date_string(self.train_start_date)} to {date_string(self.train_end_date)}")
+        self.logger.info(f"Test dates: {date_string(self.test_start_date)} to {date_string(self.test_end_date)}")
 
     def launch(self):
         self.logger.info(f"Launching task")
@@ -116,51 +139,35 @@ class ETL_ML_Task(Task):
 
         if file_exists(prepared_path):
             self.logger.info("Loading existing prepared data")
-            self.df_prepared = pd.read_parquet(
-                prepared_path,
-            )
-            self.df_prepared.date = pd.to_datetime(self.df_prepared.date)
+            df_prepared = pd.read_parquet(prepared_path)
+            df_prepared.date = pd.to_datetime(df_prepared.date)
         else:
             self.logger.info("Preparing data")
             parcel_ids = list(self.df_raw_encoded.Parid.unique())
 
             if is_local:
-                parcel_ids = random.sample(parcel_ids, int(len(parcel_ids) * 0.1))
+                parcel_ids = random.sample(parcel_ids, int(len(parcel_ids) * 0.05))
 
-            self.df_prepared = pd.concat(
+            df_prepared = pd.concat(
                 pd.DataFrame({"Parid": parcel_ids})
-                .Parid.parallel_apply(get_parcel_prepared_data, args=(self.df_raw_encoded,))
+                .Parid.parallel_apply(get_parcel_prepared_data, args=(self,))
                 .tolist(),
                 copy=False,
                 ignore_index=True,
             )
 
             self.logger.info("Saving prepared data")
-            self.df_prepared.to_parquet(prepared_path, index=False)
+            df_prepared.to_parquet(prepared_path, index=False)
             copy_file_to_storage("etl", prepared_path)
 
         self.logger.info("Splitting data")
-
-        test_start_date = datetime.strptime(self.run_date, "%Y-%m-%d")
-        test_end_date = test_start_date.replace(year=(test_start_date.year + 2))
-
-        test_is_same_year = test_start_date.month > 1
-        train_end_date = test_start_date.replace(
-            year=(test_start_date.year if test_is_same_year else test_start_date.year - 1),
-            month=(test_start_date.month - 1 if test_is_same_year else 12),
-        )
-        train_start_date = train_end_date.replace(year=(train_end_date.year - 10))
-
-        self.logger.info(f"Train dates: {date_string(train_start_date)} to {date_string(train_end_date)}")
-        self.logger.info(f"Test dates: {date_string(test_start_date)} to {date_string(test_end_date)}")
-
         date_columns = ["date", "last_sale_date"]
 
-        self.df_train = self.df_prepared.loc[
-            (self.df_prepared.date >= train_start_date) & (self.df_prepared.date <= train_end_date)
+        self.df_train = df_prepared.loc[
+            (df_prepared.date >= self.train_start_date) & (df_prepared.date <= self.train_end_date)
         ].drop(columns=date_columns)
-        self.df_test = self.df_prepared.loc[
-            (self.df_prepared.date >= test_start_date) & (self.df_prepared.date <= test_end_date)
+        self.df_test = df_prepared.loc[
+            (df_prepared.date >= self.test_start_date) & (df_prepared.date <= self.test_end_date)
         ].drop(columns=date_columns)
 
     def _train_models(self):
@@ -179,7 +186,7 @@ class ETL_ML_Task(Task):
         self.fit_jobs = 2 if is_local else int(cpu_count / len(label_names))
         self.fit_minutes = 60
         self.per_job_fit_minutes = 30
-        self.per_job_fit_memory_limit_mb = (4 if is_local else 8) * 1024
+        self.per_job_fit_memory_limit_mb = (3 if is_local else 8) * 1024
 
         self.logger.info(f"Total labels: {len(label_names)}")
         self.logger.info(f"Jobs per label: {self.fit_jobs}")
@@ -193,18 +200,13 @@ class ETL_ML_Task(Task):
         model_directories = {}
         procs = []
 
-        def get_section_divider(label_divider):
-            return f"----------------------{label_divider.center(45)}----------------------"
-
         for label_name in label_names:
-            self.logger.info(get_section_divider(f"Start init AutoML for {label_name}"))
+            self.logger.info(f"Initialize AutoML for {label_name}")
 
+            X_train_final = X_train
             y_train = self.df_train[label_name].values
             y_test = self.df_test[label_name].values
-
-            rus = RandomUnderSampler(sampling_strategy=0.1)
-            X_train_res, y_train_res = rus.fit_resample(X_train, y_train)
-
+            
             def log_y_label_stats(label_name, label_values):
                 total_labels = len(label_values)
                 sum_labels = sum(label_values)
@@ -212,7 +214,12 @@ class ETL_ML_Task(Task):
                 self.logger.info(f"{label_name}: {sum_labels}/{total_labels} ({p_labels:.2f}%)")
 
             log_y_label_stats(f"Train labels", y_train)
-            log_y_label_stats(f"Train res labels", y_train_res)
+
+            if (sum(y_train) / len(y_train)) < 0.1:
+                rus = RandomUnderSampler(sampling_strategy=0.15)
+                X_train_final, y_train = rus.fit_resample(X_train, y_train)
+                log_y_label_stats(f"Train resamped labels", y_train)
+
             log_y_label_stats(f"Test labels", y_test)
 
             model_directories[label_name] = os.path.join("data", "models", self.run_date, self.county, label_name)
@@ -223,14 +230,13 @@ class ETL_ML_Task(Task):
                     self,
                     label_name,
                     model_directories[label_name],
-                    X_train_res,
-                    y_train_res,
+                    X_train_final,
+                    y_train,
                     X_test,
                     y_test,
                 ),
             )
             procs.append(proc)
-            self.logger.info(get_section_divider(f"End init AutoML for {label_name}"))
 
         for proc in procs:
             proc.start()
@@ -239,40 +245,39 @@ class ETL_ML_Task(Task):
             proc.join()
 
         for label_name in label_names:
-            self.logger.info(get_section_divider(f"Start model metrics for {label_name}"))
+            self.logger.info(f"Model metrics for {label_name}")
+            model = mlflow.sklearn.load_model(model_directories[label_name])
 
-            with open(os.path.join(model_directories[label_name], "model.pkl"), "rb") as model_file:
-                model = pickle.load(model_file)
+            self.logger.info(f"" + model.sprint_statistics())
 
-                self.logger.info(f"" + model.sprint_statistics())
+            y_pred = model.predict(X_test)
+            y_pred_proba = model.predict_proba(X_test)
+            y_test = self.df_test[label_name].values
 
-                y_pred = model.predict(X_test)
-                y_pred_proba = model.predict_proba(X_test)
-                y_test = self.df_test[label_name].values
+            log_y_label_stats(f"Pred labels", y_pred)
 
-                log_y_label_stats(f"Pred labels", y_pred)
+            tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
+            average_precision_value = average_precision_score(y_test, y_pred)
+            precision_value = precision_score(y_test, y_pred)
+            roc_auc_value = roc_auc_score(y_test, y_pred)
 
+            self.logger.info(f"Average precision: {average_precision_value:.2f}")
+            self.logger.info(f"Precision: {precision_value:.2f}")
+            self.logger.info(f"ROC AUC: {roc_auc_value:.2f}")
+            self.logger.info(f"Classification report:\n" + classification_report(y_test, y_pred))
+            self.logger.info(
+                f"Confusion matrix:\n"
+                + pd.crosstab(y_test, y_pred, rownames=["Actual"], colnames=["Predicted"], margins=True).to_string()
+            )
+
+            for pred_proba in [0.5, 0.6, 0.7, 0.8, 0.9]:
+                y_pred = [1 if y[1] > pred_proba else 0 for y in y_pred_proba]
                 tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
+                average_precision_value = average_precision_score(y_test, y_pred)
                 precision_value = precision_score(y_test, y_pred)
-                roc_auc_value = roc_auc_score(y_test, y_pred)
-
-                self.logger.info(f"Precision: {precision_value:.2f}")
-                self.logger.info(f"ROC AUC: {roc_auc_value:.2f}")
-                self.logger.info(f"Classification report:\n" + classification_report(y_test, y_pred))
                 self.logger.info(
-                    f"Confusion matrix:\n"
-                    + pd.crosstab(y_test, y_pred, rownames=["Actual"], colnames=["Predicted"], margins=True).to_string()
+                    f"AP/P proba {pred_proba}: {average_precision_value:.2f}/{precision_value:.2f} (tp={tp}, fp={fp}, tn={tn}, fn={fn})"
                 )
-
-                for pred_proba in [0.5, 0.6, 0.7, 0.8, 0.9]:
-                    y_pred = [1 if y[1] > pred_proba else 0 for y in y_pred_proba]
-                    tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
-                    precision_value = precision_score(y_test, y_pred)
-                    self.logger.info(
-                        f"Precision proba {pred_proba}: {precision_value:.2f} (tp={tp}, fp={fp}, tn={tn}, fn={fn})"
-                    )
-
-            self.logger.info(get_section_divider(f"End model metrics for {label_name}"))
 
 
 # if you're using python_wheel_task, you'll need the entrypoint function to be used in setup.py

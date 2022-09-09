@@ -1,4 +1,4 @@
-def get_parcel_prepared_data(parcel_id, df_raw_encoded):
+def get_parcel_prepared_data(parcel_id, task):
     import pandas as pd
 
     from datetime import datetime
@@ -27,7 +27,7 @@ def get_parcel_prepared_data(parcel_id, df_raw_encoded):
     dates_since_last_sale = 0
 
     df_parcel_sales = (
-        df_raw_encoded.loc[df_raw_encoded.Parid == parcel_id]
+        task.df_raw_encoded.loc[task.df_raw_encoded.Parid == parcel_id]
         .sort_values(by="last_sale_date", ascending=True)
         .reset_index(drop=True)
     )
@@ -53,10 +53,12 @@ def get_parcel_prepared_data(parcel_id, df_raw_encoded):
                     "dates_since_last_sale": dates_since_last_sale,
                 }
 
-                for column in list(df_raw_encoded.columns):
+                for column in list(task.df_raw_encoded.columns):
                     prepared_data_object[column] = row[column]
 
-                prepared_data.append(prepared_data_object)
+                if date >= task.train_start_date:
+                    prepared_data.append(prepared_data_object)
+
                 dates_since_last_sale += 1
 
                 if date_index == total_dates - 2:
@@ -71,15 +73,18 @@ def train_model(task, label_name, model_directory, X_train, y_train, X_test, y_t
     import shutil
 
     from autosklearn.classification import AutoSklearnClassifier
-    from autosklearn.metrics import average_precision
-    from sklearn.metrics import confusion_matrix, precision_score, roc_auc_score
+    from autosklearn.metrics import roc_auc
+    from sklearn.metrics import confusion_matrix, average_precision_score, precision_score, roc_auc_score
 
     from freeholdforecast.common.utils import copy_directory_to_storage
 
     mlflow_run = task.mlflow_client.create_run(task.mlflow_experiment.experiment_id)
     mlflow_run_id = mlflow_run.info.run_id
 
-    with mlflow.start_run(mlflow_run_id, task.mlflow_experiment.experiment_id, label_name):
+    with mlflow.start_run(mlflow_run_id, task.mlflow_experiment.experiment_id):
+        task.mlflow_client.log_param(mlflow_run_id, "label_name", label_name)
+        task.mlflow_client.log_param(mlflow_run_id, "metric", "roc_auc")
+        task.mlflow_client.log_param(mlflow_run_id, "train_years", task.train_years)
         task.mlflow_client.log_param(mlflow_run_id, "fit_jobs", task.fit_jobs)
         task.mlflow_client.log_param(mlflow_run_id, "fit_minutes", task.fit_minutes)
         task.mlflow_client.log_param(mlflow_run_id, "per_job_fit_minutes", task.per_job_fit_minutes)
@@ -91,7 +96,7 @@ def train_model(task, label_name, model_directory, X_train, y_train, X_test, y_t
             per_run_time_limit=(60 * task.per_job_fit_minutes),
             memory_limit=task.per_job_fit_memory_limit_mb,
             n_jobs=task.fit_jobs,
-            metric=average_precision,
+            metric=roc_auc,
             include={"classifier": ["gradient_boosting"]},
             initial_configurations_via_metalearning=0,
         )
@@ -105,16 +110,20 @@ def train_model(task, label_name, model_directory, X_train, y_train, X_test, y_t
 
         mlflow.sklearn.log_model(automl, model_directory)
         mlflow.sklearn.save_model(automl, model_directory)
-        copy_directory_to_storage("models", model_directory)
+
+        if os.getenv("APP_ENV") != "local":
+            copy_directory_to_storage("models", model_directory)
 
         y_pred = automl.predict(X_test)
 
         tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
+        average_precision_value = average_precision_score(y_test, y_pred)
         precision_value = precision_score(y_test, y_pred)
         roc_auc_value = roc_auc_score(y_test, y_pred)
 
         task.mlflow_client.log_metric(mlflow_run_id, "tp", tp)
         task.mlflow_client.log_metric(mlflow_run_id, "fp", fp)
+        task.mlflow_client.log_metric(mlflow_run_id, "average_precision", average_precision_value)
         task.mlflow_client.log_metric(mlflow_run_id, "precision", precision_value)
         task.mlflow_client.log_metric(mlflow_run_id, "roc_auc", roc_auc_value)
 
