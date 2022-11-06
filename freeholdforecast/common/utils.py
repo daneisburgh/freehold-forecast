@@ -79,7 +79,4 @@ def make_directory(directory_path):
 
 
 def to_numeric(value):
-    try:
-        return pd.to_numeric(value)
-    except:
-        return np.nan
+    return pd.to_numeric(value, errors="coerce")

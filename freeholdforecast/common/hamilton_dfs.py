@@ -51,7 +51,7 @@ download_format_info = {
             "Appraisal Area",
             "PriorOwner",
             "PropertyNumber",
-        ]
+        ],
     },
     "old-format": {
         "files": [
@@ -79,7 +79,6 @@ download_format_info = {
             "House #",
             "Street Name",
             "Street Suffix",
-            # "Zip Code",
             "Month of Sale",
             "Day of Sale",
             "Year of Sale",
@@ -88,8 +87,8 @@ download_format_info = {
             "Valid Sale",
             "Conveyance #",
             "Deed Type",
-        ]
-    }
+        ],
+    },
 }
 
 
@@ -105,14 +104,12 @@ def get_df_hamilton(landing_directory):
     df["Plat"] = df["Plat"].apply(lambda x: str(x).rjust(4, "0"))
     df["Parcel"] = df["Parcel"].apply(lambda x: str(x).rjust(4, "0"))
     df["ParcelID"] = df["ParcelID"].apply(lambda x: str(x).rjust(2, "0"))
-    df["Parid"] = df[["Book", "Plat", "Parcel", "ParcelID"]].apply(
-        lambda x: "".join(x.astype(str)), axis=1)
+    df["Parid"] = df[["Book", "Plat", "Parcel", "ParcelID"]].apply(lambda x: "".join(x.astype(str)), axis=1)
     df["Building Value"] = df["Building Value"].apply(to_numeric)
     df["Land Value"] = df["Land Value"].apply(to_numeric)
-    df["Year of Sale"] = df["Year of Sale"].apply(
-        lambda year: year if year not in [98, 99] else year + 1900)
-    df["Month of Sale"] = df["Month of Sale"].apply(
-        lambda month: month if len(str(month)) == 2 else "0" + str(month))
+    df["Year of Sale"] = df["Year of Sale"].apply(lambda year: year if year not in [98, 99] else year + 1900)
+    df["Month of Sale"] = df["Month of Sale"].apply(lambda month: month if len(str(month)) == 2 else "0" + str(month))
+    df["last_sale_amount"] = pd.to_numeric(df["Sale Price"])
     df["last_sale_date"] = pd.to_datetime(
         df[["Year of Sale", "Month of Sale"]].apply(lambda x: "-".join(x.astype(str)), axis=1), format="%Y-%m"
     )

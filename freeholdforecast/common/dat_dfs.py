@@ -47,8 +47,8 @@ def get_df_dat(county, landing_directory):
     rename_columns = {
         "Own1": "Owner Name 1",
         "Adrno_legal": "House #",
-        "Adrsuf_legal": "Street Name",
-        "Adrstr_legal": "Street Suffix",
+        "Adrstr_legal": "Street Name",
+        "Adrsuf_legal": "Street Suffix",
         "Saleval": "Valid Sale",
         "Price": "Sale Price",
         "Aprbldg": "Building Value",
@@ -67,6 +67,7 @@ def get_df_dat(county, landing_directory):
         "Year of Sale",
         "Month of Sale",
         "Day of Sale",
+        "last_sale_amount",
         "last_sale_date",
     ] + list(rename_columns.values())
 
@@ -613,6 +614,7 @@ def get_df_sales(data_directory):
 
         return date
 
+    # df_sales["last_sale_amount"] = pd.to_numeric(df_sales.Price)
     df_sales["last_sale_date"] = pd.to_datetime(df_sales.Saledt, format="%d-%b-%y").apply(update_invalid_years)
     df_sales.sort_values(by="last_sale_date", ascending=True, inplace=True)
 
