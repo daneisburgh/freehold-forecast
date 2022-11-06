@@ -12,6 +12,10 @@ custom:
 environments:
   default:
     workflows:
+      - name: "pandarallel-sample"
+        <<: *basic-static-cluster
+        spark_python_task:
+          python_file: "file://freeholdforecast/tasks/pandarallel_sample.py"
       - name: "freeholdforecast-etl-ml"
         <<: *basic-static-cluster
         spark_python_task:
