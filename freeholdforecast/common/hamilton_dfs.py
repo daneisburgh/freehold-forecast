@@ -2,7 +2,7 @@ import glob
 import os
 import pandas as pd
 
-from freeholdforecast.common.utils import download_file, make_directory, to_numeric
+from freeholdforecast.common.utils import download_file_from_source, make_directory, to_numeric
 
 download_root_url = "https://www.hamiltoncountyauditor.org/download/"
 download_format_info = {
@@ -125,7 +125,7 @@ def get_df_format(format_name, landing_directory):
     for file_name in download_format_info[format_name]["files"]:
         download_url = download_root_url + file_name
         download_file_path = os.path.join(format_directory, file_name)
-        download_file(download_url, download_file_path)
+        download_file_from_source(download_url, download_file_path)
 
     dfs = []
     all_files = glob.glob(os.path.join(format_directory, "*.csv"))

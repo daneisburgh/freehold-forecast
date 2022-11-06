@@ -3,7 +3,7 @@ import pandas as pd
 import subprocess
 
 from datetime import datetime
-from freeholdforecast.common.utils import download_file, make_directory
+from freeholdforecast.common.utils import download_file_from_source, make_directory
 
 
 def get_df_dat(county, landing_directory):
@@ -19,7 +19,7 @@ def get_df_dat(county, landing_directory):
     data_directory = os.path.join(landing_directory, download_file_name.replace(".zip", ""))
     make_directory(data_directory)
 
-    download_file(download_url, download_file_path)
+    download_file_from_source(download_url, download_file_path)
 
     subprocess.run(
         f"unzip {download_file_path} -d {data_directory}".split(),

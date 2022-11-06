@@ -1,4 +1,3 @@
-import numpy as np
 import os
 import pandas as pd
 import requests
@@ -59,7 +58,7 @@ def date_string(date):
     return date.strftime("%Y-%m-%d")
 
 
-def download_file(url, save_path):
+def download_file_from_source(url, save_path):
     with requests.get(url, stream=True) as response:
         response.raise_for_status()
         with open(save_path, "wb") as save_file:
