@@ -31,6 +31,7 @@ DEV_REQUIREMENTS = [
     # development & testing tools
     "coverage[toml]",
     "dbx>=0.7,<0.8",
+    "matplotlib",
     "jupyter",
     "pytest",
     "pytest-cov",
