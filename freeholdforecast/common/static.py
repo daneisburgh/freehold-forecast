@@ -1,5 +1,4 @@
-def get_parcel_prepared_data(parcel_id, task):
-    import numpy as np
+def get_parcel_prepared_data(parcel_ids, df_raw_encoded, train_start_date):
     import pandas as pd
 
     from datetime import datetime
@@ -25,55 +24,57 @@ def get_parcel_prepared_data(parcel_id, task):
         return 1 if date_index >= (total_dates - date_diff - 1) and has_next_sale_date else 0
 
     prepared_data = []
-    dates_since_last_sale = 0
 
-    df_parcel_sales = (
-        task.df_raw_encoded.loc[task.df_raw_encoded.Parid == parcel_id]
-        .sort_values(by="last_sale_date", ascending=True)
-        .reset_index(drop=True)
-    )
+    for parcel_id in parcel_ids:
+        dates_since_last_sale = 0
 
-    df_parcel_sales["next_sale_date"] = df_parcel_sales.last_sale_date.shift(-1)
-    df_parcel_sales["next_sale_amount"] = df_parcel_sales.last_sale_amount.shift(-1)
+        df_parcel_sales = (
+            df_raw_encoded.loc[df_raw_encoded.Parid == parcel_id]
+            .sort_values(by="last_sale_date", ascending=True)
+            .reset_index(drop=True)
+        )
 
-    for row_index, row in df_parcel_sales.iterrows():
-        has_next_sale_date = pd.notnull(row.next_sale_date)
+        df_parcel_sales["next_sale_date"] = df_parcel_sales.last_sale_date.shift(-1)
+        df_parcel_sales["next_sale_amount"] = df_parcel_sales.last_sale_amount.shift(-1)
 
-        dates = get_dates(row.last_sale_date, row.next_sale_date)
-        total_dates = len(dates)
+        for row_index, row in df_parcel_sales.iterrows():
+            has_next_sale_date = pd.notnull(row.next_sale_date)
 
-        for date_index, date in enumerate(dates):
-            if date_index < total_dates - 1:
-                prepared_data_object = {
-                    "next_sale_amount": pd.to_numeric(row.next_sale_amount, errors="coerce"),
-                    "sale_in_3_months": has_next_sale(3, has_next_sale_date),
-                    "sale_in_6_months": has_next_sale(6, has_next_sale_date),
-                    "sale_in_12_months": has_next_sale(12, has_next_sale_date),
-                    "date": date.replace(day=1),
-                    "month": date.month,
-                    "dates_since_last_sale": dates_since_last_sale,
-                }
+            dates = get_dates(row.last_sale_date, row.next_sale_date)
+            total_dates = len(dates)
 
-                for column in [
-                    "Tax District",
-                    "Land Value",
-                    "Building Value",
-                    "Property Class",
-                    "Sale Price",
-                    "Valid Sale",
-                    "Parid",
-                    "last_sale_amount",
-                    "last_sale_date",
-                ]:
-                    prepared_data_object[column] = row[column]
+            for date_index, date in enumerate(dates):
+                if date_index < total_dates - 1:
+                    prepared_data_object = {
+                        "next_sale_amount": pd.to_numeric(row.next_sale_amount, errors="coerce"),
+                        "sale_in_3_months": has_next_sale(3, has_next_sale_date),
+                        "sale_in_6_months": has_next_sale(6, has_next_sale_date),
+                        "sale_in_12_months": has_next_sale(12, has_next_sale_date),
+                        "date": date.replace(day=1),
+                        "month": date.month,
+                        "dates_since_last_sale": dates_since_last_sale,
+                    }
 
-                if date >= task.train_start_date:
-                    prepared_data.append(prepared_data_object)
+                    for column in [
+                        "Tax District",
+                        "Land Value",
+                        "Building Value",
+                        "Property Class",
+                        "Sale Price",
+                        "Valid Sale",
+                        "Parid",
+                        "last_sale_amount",
+                        "last_sale_date",
+                    ]:
+                        prepared_data_object[column] = row[column]
 
-                dates_since_last_sale += 1
+                    if date >= train_start_date:
+                        prepared_data.append(prepared_data_object)
 
-                if date_index == total_dates - 2:
-                    dates_since_last_sale = 0
+                    dates_since_last_sale += 1
+
+                    if date_index == total_dates - 2:
+                        dates_since_last_sale = 0
 
     return pd.DataFrame(prepared_data)
 

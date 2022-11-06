@@ -1,6 +1,7 @@
 import logging
 import os
 import pathlib
+import psutil
 import sys
 import yaml
 
@@ -38,6 +39,8 @@ class Task(ABC):
 
     def __init__(self, spark=None, init_conf=None):
         self.logger = self._prepare_logger()
+        self.cpu_count = psutil.cpu_count(logical=True)
+        self.is_local = os.getenv("APP_ENV") == "local"
 
         if not os.getenv("APP_ENV") == "local":
             self.spark = self._prepare_spark(spark)

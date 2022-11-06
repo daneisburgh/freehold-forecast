@@ -1,15 +1,15 @@
 import gc
 import mlflow
+import numpy as np
 import os
 import pandas as pd
 import pickle
-import psutil
 import random
 
 from datetime import datetime, timedelta
+from functools import partial
 from mlflow.tracking import MlflowClient
-from multiprocessing import Process
-from pandarallel import pandarallel
+from multiprocessing import Manager, Pool, Process
 from sklearn.metrics import (
     classification_report,
     confusion_matrix,
@@ -30,16 +30,6 @@ from freeholdforecast.common.utils import (
     date_string,
     file_exists,
     make_directory,
-)
-
-cpu_count = psutil.cpu_count(logical=True)
-is_local = os.getenv("APP_ENV") == "local"
-
-pandarallel.initialize(
-    nb_workers=cpu_count,
-    progress_bar=is_local,
-    use_memory_fs=False,
-    verbose=1,
 )
 
 
@@ -159,15 +149,24 @@ class ETL_ML_Task(Task):
             self.df_prepared.date = pd.to_datetime(self.df_prepared.date)
         else:
             self.logger.info("Preparing data")
+            # self.df_prepared = get_prepared_data(self)
+
             parcel_ids = list(self.df_raw_encoded.Parid.unique())
 
-            if is_local:
-                parcel_ids = random.sample(parcel_ids, int(len(parcel_ids) * 0.2))
+            # if self.is_local:
+            parcel_ids = random.sample(parcel_ids, int(len(parcel_ids) * 0.05))
+
+            parcel_ids_split = np.array_split(parcel_ids, self.cpu_count)
 
             self.df_prepared = pd.concat(
-                pd.DataFrame({"Parid": parcel_ids})
-                .Parid.parallel_apply(get_parcel_prepared_data, args=(self,))
-                .tolist(),
+                Pool(self.cpu_count).map(
+                    partial(
+                        get_parcel_prepared_data,
+                        df_raw_encoded=self.df_raw_encoded,
+                        train_start_date=self.train_start_date,
+                    ),
+                    parcel_ids_split,
+                ),
                 copy=False,
                 ignore_index=True,
             )
@@ -192,10 +191,10 @@ class ETL_ML_Task(Task):
     def _train_models(self):
         gc.collect()
 
-        self.fit_jobs = int(cpu_count / len(self.label_names))
-        self.fit_minutes = 60 if is_local else 120
+        self.fit_jobs = int(self.cpu_count / len(self.label_names))
+        self.fit_minutes = 60 if self.is_local else 20
         self.per_job_fit_minutes = int(self.fit_minutes / 4)
-        self.per_job_fit_memory_limit_mb = (3 if is_local else 8) * 1024
+        self.per_job_fit_memory_limit_mb = (3 if self.is_local else 8) * 1024
 
         self.logger.info(f"Total labels: {len(self.label_names)}")
         self.logger.info(f"Jobs per label: {self.fit_jobs}")
