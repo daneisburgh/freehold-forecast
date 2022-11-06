@@ -35,13 +35,12 @@ from freeholdforecast.common.utils import (
 cpu_count = psutil.cpu_count(logical=True)
 is_local = os.getenv("APP_ENV") == "local"
 
-pandarallel.initialize()
-# pandarallel.initialize(
-#     nb_workers=cpu_count,
-#     progress_bar=is_local,
-#     use_memory_fs=False,
-#     verbose=1,
-# )
+pandarallel.initialize(
+    nb_workers=cpu_count,
+    progress_bar=is_local,
+    use_memory_fs=False,
+    verbose=1,
+)
 
 
 class ETL_ML_Task(Task):
