@@ -8,7 +8,7 @@ While using this project, you need Python 3.X and `pip` or `conda` for package m
 
 1. Instantiate a local Python environment via a tool of your choice. This example is based on `conda`, but you can use any environment management tool:
 ```bash
-conda create -n freeholdforecast python=3.9
+conda create -n freeholdforecast python=3.8
 conda activate freeholdforecast
 ```
 
