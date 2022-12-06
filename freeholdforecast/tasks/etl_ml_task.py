@@ -8,8 +8,9 @@ import random
 
 from datetime import datetime, timedelta
 from functools import partial
+from imblearn.under_sampling import RandomUnderSampler
 from mlflow.tracking import MlflowClient
-from multiprocessing import Manager, Pool, Process
+from multiprocessing import Pool, Process
 from sklearn.metrics import (
     classification_report,
     confusion_matrix,
@@ -36,7 +37,7 @@ from freeholdforecast.common.utils import (
 class ETL_ML_Task(Task):
     def __init__(self):
         super().__init__()
-        self.county = "ohio-hamilton"
+        self.county = "northcarolina-mecklenburg"
         # self.run_date = date_string(datetime.now().replace(day=1))
         # self.run_date = date_string((datetime.now() - timedelta(365 * 6)).replace(day=1))
         self.run_date = "2021-10-01"
@@ -59,13 +60,14 @@ class ETL_ML_Task(Task):
         self.logger.info(f"Test dates: {date_string(self.test_start_date)} to {date_string(self.test_end_date)}")
 
         self.classification_label_names = [
-            "sale_in_3_months",
+            # "sale_in_3_months",
             "sale_in_6_months",
-            "sale_in_12_months",
+            # "sale_in_12_months",
         ]
 
         self.regression_label_names = [
             "next_sale_amount",
+            # "next_sale_months",
         ]
 
         self.label_names = self.classification_label_names + self.regression_label_names
@@ -73,13 +75,14 @@ class ETL_ML_Task(Task):
     def launch(self):
         self.logger.info(f"Launching task")
 
-        self._get_df_raw_encoded()
+        self._get_df_raw()
+        self._get_df_encoded()
         self._get_df_prepared()
         self._train_models()
 
         self.logger.info(f"Finished task")
 
-    def _get_df_raw_encoded(self):
+    def _get_df_raw(self):
         raw_directory = os.path.join("data", "etl", self.run_date, self.county, "1-raw")
         make_directory(raw_directory)
 
@@ -103,8 +106,16 @@ class ETL_ML_Task(Task):
         self.logger.info(f"Total parcels: {len(self.df_raw.Parid.unique())}")
         self.logger.info(f"Total sales: {len(self.df_raw)}")
 
+    def _get_df_encoded(self):
+        encoded_directory = os.path.join("data", "etl", self.run_date, self.county, "2-encoded")
+        make_directory(encoded_directory)
+
+        encoded_path = os.path.join(encoded_directory, "raw-encoded.gz")
+
+        # self.non_encoded_date_columns = ["last_sale_date"]
+        # self.non_encoded_numeric_columns = ["last_sale_amount", "Sale Price", "Land Value", "Building Value"]
+        # self.non_encoded_columns = self.non_encoded_date_columns + self.non_encoded_numeric_columns
         self.non_encoded_columns = ["last_sale_date", "last_sale_amount"]
-        encoded_path = os.path.join(raw_directory, "raw-encoded.gz")
 
         if file_exists(encoded_path):
             self.logger.info("Loading existing encoded data")
@@ -127,18 +138,21 @@ class ETL_ML_Task(Task):
             for column in self.non_encoded_columns:
                 self.df_raw_encoded[column] = self.df_raw[column]
 
+            # for column in self.non_encoded_numeric_columns:
+            #     self.df_raw_encoded[column] = pd.to_numeric(self.df_raw[column], errors="coerce")
+
             self.logger.info("Saving encoded data")
             self.df_raw_encoded.to_parquet(encoded_path, index=False)
             copy_file_to_storage("etl", encoded_path)
 
-            ordinal_encoder_path = os.path.join(raw_directory, "ordinal-encoder.pkl")
+            ordinal_encoder_path = os.path.join(encoded_directory, "ordinal-encoder.pkl")
             with open(ordinal_encoder_path, "wb") as ordinal_encoder_file:
                 pickle.dump(self.ordinal_encoder, ordinal_encoder_file)
             copy_file_to_storage("etl", ordinal_encoder_path)
 
     def _get_df_prepared(self):
         gc.collect()
-        prepared_directory = os.path.join("data", "etl", self.run_date, self.county, "2-prepared")
+        prepared_directory = os.path.join("data", "etl", self.run_date, self.county, "3-prepared")
         make_directory(prepared_directory)
 
         prepared_path = os.path.join(prepared_directory, self.county + ".gz")
@@ -149,12 +163,11 @@ class ETL_ML_Task(Task):
             self.df_prepared.date = pd.to_datetime(self.df_prepared.date)
         else:
             self.logger.info("Preparing data")
-            # self.df_prepared = get_prepared_data(self)
 
             parcel_ids = list(self.df_raw_encoded.Parid.unique())
 
-            # if self.is_local:
-            parcel_ids = random.sample(parcel_ids, int(len(parcel_ids) * 0.05))
+            if self.is_local:
+                parcel_ids = random.sample(parcel_ids, int(len(parcel_ids) * 0.1))
 
             parcel_ids_split = np.array_split(parcel_ids, self.cpu_count)
 
@@ -169,7 +182,7 @@ class ETL_ML_Task(Task):
                 ),
                 copy=False,
                 ignore_index=True,
-            )
+            ).drop_duplicates(ignore_index=True)
 
             for label_name in self.label_names:
                 self.df_prepared[label_name] = pd.to_numeric(self.df_prepared[label_name])
@@ -179,6 +192,7 @@ class ETL_ML_Task(Task):
             copy_file_to_storage("etl", prepared_path)
 
         self.logger.info("Splitting data")
+        # prepared_drop_columns = ["date", "last_sale_date", "last_sale_amount"]
         prepared_drop_columns = ["date"] + self.non_encoded_columns
 
         self.df_train = self.df_prepared.loc[
@@ -191,9 +205,9 @@ class ETL_ML_Task(Task):
     def _train_models(self):
         gc.collect()
 
-        self.fit_jobs = int(self.cpu_count / len(self.label_names))
-        self.fit_minutes = 60 if self.is_local else 20
-        self.per_job_fit_minutes = int(self.fit_minutes / 4)
+        self.fit_jobs = 8 if self.is_local else int(self.cpu_count / len(self.label_names))
+        self.fit_minutes = 60 if self.is_local else 180
+        self.per_job_fit_minutes = 6 if self.is_local else 18
         self.per_job_fit_memory_limit_mb = (3 if self.is_local else 8) * 1024
 
         self.logger.info(f"Total labels: {len(self.label_names)}")
@@ -218,16 +232,24 @@ class ETL_ML_Task(Task):
             self.logger.info(f"Initialize AutoML for {label_name}")
             self.model_directories[label_name] = os.path.join("data", "models", self.run_date, self.county, label_name)
 
+            df_train = self.df_train.loc[self.df_train[label_name].notna()]
+            df_test = self.df_test.loc[self.df_test[label_name].notna()]
+
             is_classification = label_name in self.classification_label_names
 
             if is_classification:
-                X_train = self.df_train.drop(columns=self.label_names).to_numpy()
-                X_test = self.df_test.drop(columns=self.label_names).to_numpy()
+                X_train = df_train.drop(columns=self.label_names).to_numpy()
+                X_test = df_test.drop(columns=self.label_names).to_numpy()
 
-                y_train = self.df_train[label_name].values
-                y_test = self.df_test[label_name].values
+                y_train = df_train[label_name].values
+                y_test = df_test[label_name].values
 
                 log_y_label_stats(f"Train labels", y_train)
+
+                rus = RandomUnderSampler(sampling_strategy=0.1)
+                X_train_res, y_train_res = rus.fit_resample(X_train, y_train)
+
+                log_y_label_stats(f"Train labels resampled", y_train_res)
 
                 if len(y_test) > 0:
                     log_y_label_stats(f"Test labels", y_test)
@@ -239,16 +261,13 @@ class ETL_ML_Task(Task):
                         self,
                         label_name,
                         self.model_directories[label_name],
-                        X_train,
-                        y_train,
+                        X_train_res,
+                        y_train_res,
                         X_test,
                         y_test,
                     ),
                 )
             else:
-                df_train = self.df_train.loc[self.df_train[label_name].notna()]
-                df_test = self.df_test.loc[self.df_test[label_name].notna()]
-
                 X_train = df_train.drop(columns=self.label_names).to_numpy()
                 X_test = df_test.drop(columns=self.label_names).to_numpy()
 
@@ -278,60 +297,63 @@ class ETL_ML_Task(Task):
             proc.join()
 
         for label_name in self.label_names:
-            self.logger.info(f"Model metrics for {label_name}")
             model = mlflow.sklearn.load_model(self.model_directories[label_name])
+            self.logger.info("Model " + model.sprint_statistics())
 
-            self.logger.info(f"" + model.sprint_statistics())
+            df_train = self.df_train.loc[self.df_train[label_name].notna()]
+            df_test = self.df_test.loc[self.df_test[label_name].notna()]
 
-            if len(self.df_test) > 0:
-                is_classification = label_name in self.classification_label_names
+            for index_of_df_temp, df_temp in enumerate([df_train, df_test]):
+                if len(df_temp) > 0:
+                    type_of_df_temp = "training" if index_of_df_temp == 0 else "testing"
+                    self.logger.info(f"Metrics for {label_name} with {type_of_df_temp} data:")
+                    is_classification = label_name in self.classification_label_names
 
-                if is_classification:
-                    X_test = self.df_test.drop(columns=self.label_names).to_numpy()
-                    y_test = self.df_test[label_name].values
+                    if is_classification:
+                        X_test = df_temp.drop(columns=self.label_names).to_numpy()
+                        y_test = df_temp[label_name].values
 
-                    y_pred = model.predict(X_test)
-                    log_y_label_stats(f"Pred labels", y_pred)
+                        y_pred = model.predict(X_test)
+                        log_y_label_stats(f"Pred labels", y_pred)
 
-                    tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
-                    average_precision_value = average_precision_score(y_test, y_pred)
-                    precision_value = precision_score(y_test, y_pred)
-                    roc_auc_value = roc_auc_score(y_test, y_pred)
-
-                    self.logger.info(f"Precision: {precision_value:.2f}")
-                    self.logger.info(f"Average precision: {average_precision_value:.2f}")
-                    self.logger.info(f"ROC AUC: {roc_auc_value:.2f}")
-                    self.logger.info(f"Classification report:\n" + classification_report(y_test, y_pred))
-                    self.logger.info(
-                        f"Confusion matrix:\n"
-                        + pd.crosstab(
-                            y_test, y_pred, rownames=["Actual"], colnames=["Predicted"], margins=True
-                        ).to_string()
-                    )
-
-                    y_pred_proba = model.predict_proba(X_test)
-
-                    for pred_proba in [0.5, 0.6, 0.7, 0.8, 0.9]:
-                        y_pred = [1 if y[1] > pred_proba else 0 for y in y_pred_proba]
                         tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
                         average_precision_value = average_precision_score(y_test, y_pred)
                         precision_value = precision_score(y_test, y_pred)
+                        roc_auc_value = roc_auc_score(y_test, y_pred)
+
+                        self.logger.info(f"Precision: {precision_value:.2f}")
+                        self.logger.info(f"Average precision: {average_precision_value:.2f}")
+                        self.logger.info(f"ROC AUC: {roc_auc_value:.2f}")
+                        self.logger.info(f"Classification report:\n" + classification_report(y_test, y_pred))
                         self.logger.info(
-                            f"AP/P proba {pred_proba}: {average_precision_value:.2f}/{precision_value:.2f} (tp={tp}, fp={fp}, tn={tn}, fn={fn})"
+                            f"Confusion matrix:\n"
+                            + pd.crosstab(
+                                y_test, y_pred, rownames=["Actual"], colnames=["Predicted"], margins=True
+                            ).to_string()
                         )
-                else:
-                    df_test = self.df_test.loc[self.df_test[label_name].notna()]
-                    X_test = df_test.drop(columns=self.label_names).to_numpy()
-                    y_test = df_test[label_name].values
-                    y_pred = model.predict(X_test)
 
-                    r2_value = r2_score(y_test, y_pred)
-                    mae_value = mean_absolute_error(y_test, y_pred)
-                    mape_value = mean_absolute_percentage_error(y_test, y_pred)
+                        y_pred_proba = model.predict_proba(X_test)
 
-                    self.logger.info(f"R2: {r2_value:.2f}")
-                    self.logger.info(f"MAE: {mae_value:.2f}")
-                    self.logger.info(f"MAPE: {mape_value:.2f}")
+                        for pred_proba in [0.5, 0.6, 0.7, 0.8, 0.9]:
+                            y_pred = [1 if y[1] > pred_proba else 0 for y in y_pred_proba]
+                            tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
+                            average_precision_value = average_precision_score(y_test, y_pred)
+                            precision_value = precision_score(y_test, y_pred)
+                            self.logger.info(
+                                f"AP/P proba {pred_proba}: {average_precision_value:.2f}/{precision_value:.2f} (tp={tp}, fp={fp}, tn={tn}, fn={fn})"
+                            )
+                    else:
+                        X_test = df_temp.drop(columns=self.label_names).to_numpy()
+                        y_test = df_temp[label_name].values
+                        y_pred = model.predict(X_test)
+
+                        r2_value = r2_score(y_test, y_pred)
+                        mae_value = mean_absolute_error(y_test, y_pred)
+                        mape_value = mean_absolute_percentage_error(y_test, y_pred)
+
+                        self.logger.info(f"R2: {r2_value:.2f}")
+                        self.logger.info(f"MAE: {mae_value:.2f}")
+                        self.logger.info(f"MAPE: {mape_value:.2f}")
 
 
 # if you're using python_wheel_task, you'll need the entrypoint function to be used in setup.py
