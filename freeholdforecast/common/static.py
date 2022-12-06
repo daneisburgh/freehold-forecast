@@ -1,10 +1,13 @@
 def get_parcel_prepared_data(parcel_ids, df_raw_encoded, train_start_date):
+    import numpy as np
     import pandas as pd
 
     from datetime import datetime
     from dateutil.rrule import rrule, MONTHLY
 
-    def get_dates(start_date, end_date):
+    df_raw_encoded_columns = list(df_raw_encoded.columns)
+
+    def get_months(start_date, end_date):
         # handle 02/29 error
         if start_date.month == 2 and start_date.day == 29:
             start_date = start_date.replace(month=3, day=1)
@@ -21,12 +24,12 @@ def get_parcel_prepared_data(parcel_ids, df_raw_encoded, train_start_date):
         ]
 
     def has_next_sale(date_diff, has_next_sale_date):
-        return 1 if date_index >= (total_dates - date_diff - 1) and has_next_sale_date else 0
+        return 1 if date_index >= (total_months - date_diff - 1) and has_next_sale_date else 0
 
     prepared_data = []
 
     for parcel_id in parcel_ids:
-        dates_since_last_sale = 0
+        months_since_last_sale = 0
 
         df_parcel_sales = (
             df_raw_encoded.loc[df_raw_encoded.Parid == parcel_id]
@@ -40,41 +43,43 @@ def get_parcel_prepared_data(parcel_ids, df_raw_encoded, train_start_date):
         for row_index, row in df_parcel_sales.iterrows():
             has_next_sale_date = pd.notnull(row.next_sale_date)
 
-            dates = get_dates(row.last_sale_date, row.next_sale_date)
-            total_dates = len(dates)
+            months = get_months(row.last_sale_date, row.next_sale_date)
+            total_months = len(months)
 
-            for date_index, date in enumerate(dates):
-                if date_index < total_dates - 1:
+            for date_index, date in enumerate(months):
+                if date_index < total_months - 1:
                     prepared_data_object = {
-                        "next_sale_amount": pd.to_numeric(row.next_sale_amount, errors="coerce"),
-                        "sale_in_3_months": has_next_sale(3, has_next_sale_date),
+                        # "sale_in_3_months": has_next_sale(3, has_next_sale_date),
                         "sale_in_6_months": has_next_sale(6, has_next_sale_date),
-                        "sale_in_12_months": has_next_sale(12, has_next_sale_date),
+                        # "sale_in_12_months": has_next_sale(12, has_next_sale_date),
+                        "next_sale_amount": pd.to_numeric(row.next_sale_amount, errors="coerce"),
+                        # "next_sale_months": (total_months - date_index - 1) if has_next_sale_date else np.nan,
                         "date": date.replace(day=1),
                         "month": date.month,
-                        "dates_since_last_sale": dates_since_last_sale,
+                        "months_since_last_sale": months_since_last_sale,
                     }
 
-                    for column in [
-                        "Tax District",
-                        "Land Value",
-                        "Building Value",
-                        "Property Class",
-                        "Sale Price",
-                        "Valid Sale",
-                        "Parid",
-                        "last_sale_amount",
-                        "last_sale_date",
-                    ]:
+                    # for column in [
+                    #     "Land Value",
+                    #     "Building Value",
+                    #     "Sale Price",
+                    #     "Tax District",
+                    #     "Property Class",
+                    #     "Valid Sale",
+                    #     "Deed Type",
+                    #     "last_sale_amount",
+                    #     "last_sale_date",
+                    # ]:
+                    for column in df_raw_encoded_columns:
                         prepared_data_object[column] = row[column]
 
                     if date >= train_start_date:
                         prepared_data.append(prepared_data_object)
 
-                    dates_since_last_sale += 1
+                    months_since_last_sale += 1
 
-                    if date_index == total_dates - 2:
-                        dates_since_last_sale = 0
+                    if date_index == total_months - 2:
+                        months_since_last_sale = 0
 
     return pd.DataFrame(prepared_data)
 
@@ -99,6 +104,8 @@ def train_model(training_type, task, label_name, model_directory, X_train, y_tra
 
     from freeholdforecast.common.utils import copy_directory_to_storage
 
+    task.logger = task._prepare_logger()  # reset logger
+
     is_classification = training_type == "classification"
     mlflow_run = task.mlflow_client.create_run(task.mlflow_experiment.experiment_id)
     mlflow_run_id = mlflow_run.info.run_id
@@ -118,7 +125,7 @@ def train_model(training_type, task, label_name, model_directory, X_train, y_tra
         per_run_time_limit = 60 * task.per_job_fit_minutes
 
         if is_classification:
-            automl = AutoSklearnClassifier(
+            model = AutoSklearnClassifier(
                 time_left_for_this_task=time_left_for_this_task,
                 per_run_time_limit=per_run_time_limit,
                 memory_limit=task.per_job_fit_memory_limit_mb,
@@ -128,16 +135,17 @@ def train_model(training_type, task, label_name, model_directory, X_train, y_tra
                 initial_configurations_via_metalearning=0,
             )
         else:
-            automl = AutoSklearnRegressor(
+            model = AutoSklearnRegressor(
                 time_left_for_this_task=time_left_for_this_task,
                 per_run_time_limit=per_run_time_limit,
                 memory_limit=task.per_job_fit_memory_limit_mb,
                 n_jobs=task.fit_jobs,
                 metric=r2,
+                include={"regressor": ["gradient_boosting"]},
                 initial_configurations_via_metalearning=0,
             )
 
-        automl.fit(X_train, y_train)
+        model.fit(X_train, y_train)
 
         task.logger = task._prepare_logger()  # reset logger
         task.logger.info(f"Saving model for {label_name}")
@@ -145,14 +153,14 @@ def train_model(training_type, task, label_name, model_directory, X_train, y_tra
         if os.path.exists(model_directory):
             shutil.rmtree(model_directory)
 
-        mlflow.sklearn.log_model(automl, model_directory)
-        mlflow.sklearn.save_model(automl, model_directory)
+        mlflow.sklearn.log_model(model, model_directory)
+        mlflow.sklearn.save_model(model, model_directory)
 
         if os.getenv("APP_ENV") != "local":
             copy_directory_to_storage("models", model_directory)
 
         if len(X_test) > 0:
-            y_pred = automl.predict(X_test)
+            y_pred = model.predict(X_test)
 
             if is_classification:
                 tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
