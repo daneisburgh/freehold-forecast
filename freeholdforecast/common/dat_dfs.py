@@ -49,6 +49,7 @@ def get_df_dat(county, landing_directory):
         "Adrno_legal": "House #",
         "Adrstr_legal": "Street Name",
         "Adrsuf_legal": "Street Suffix",
+        "Saletype": "Deed Type",
         "Saleval": "Valid Sale",
         "Price": "Sale Price",
         "Aprbldg": "Building Value",
@@ -614,7 +615,7 @@ def get_df_sales(data_directory):
 
         return date
 
-    # df_sales["last_sale_amount"] = pd.to_numeric(df_sales.Price)
+    df_sales["last_sale_amount"] = pd.to_numeric(df_sales.Price)
     df_sales["last_sale_date"] = pd.to_datetime(df_sales.Saledt, format="%d-%b-%y").apply(update_invalid_years)
     df_sales.sort_values(by="last_sale_date", ascending=True, inplace=True)
 

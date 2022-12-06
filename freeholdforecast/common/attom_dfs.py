@@ -2,8 +2,8 @@ import os
 import pandas as pd
 
 
-def get_df_attom(landing_directory):
-    df = pd.read_csv(os.path.join(landing_directory, "data.csv"), low_memory=False)
+def get_df_attom(county, landing_directory):
+    df = pd.read_csv(os.path.join(landing_directory, f"attomdata-{county}.csv"), low_memory=False)
     df["Parid"] = df["ATTOM ID"]
     df["last_sale_date"] = pd.to_datetime(df.RecordingDate)
     df["last_sale_amount"] = pd.to_numeric(df.TransferAmount)
