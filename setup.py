@@ -9,16 +9,15 @@ from setuptools import find_packages, setup
 from freeholdforecast import __version__
 
 PACKAGE_REQUIREMENTS = [
-    "auto-sklearn==0.14.7",
-    "azure-storage-blob==12.13.1",
-    "imbalanced-learn==0.8.1",
-    "ipywidgets==8.0.2",
-    "mlflow==1.28.0",
-    "pandas==1.4.4",
-    "pandarallel==1.6.3",
-    "pyarrow==9.0.0",
-    "pyyaml==6.0",
-    "scikit-learn==0.24.1"
+    "auto-sklearn",
+    "azure-storage-blob",
+    "imbalanced-learn",
+    "ipywidgets",
+    "mlflow",
+    "pandas",
+    "pyarrow",
+    "pyyaml",
+    "scikit-learn",
 ]
 
 DEV_REQUIREMENTS = [
@@ -26,13 +25,14 @@ DEV_REQUIREMENTS = [
     "setuptools",
     "wheel",
     # versions set in accordance with DBR 10.4 ML Runtime
-    "delta-spark==1.1.0",
-    "pyspark==3.2.1",
+    "delta-spark",
+    "pyspark",
     # development & testing tools
     "coverage[toml]",
-    "dbx>=0.7,<0.8",
-    "matplotlib",
+    "dbx>=0.8",
     "jupyter",
+    "matplotlib",
+    "pandarallel",
     "pytest",
     "pytest-cov",
 ]
