@@ -37,10 +37,10 @@ from freeholdforecast.common.utils import (
 class ETL_ML_Task(Task):
     def __init__(self):
         super().__init__()
-        self.county = "northcarolina-mecklenburg"
+        self.county = "ohio-hamilton"
         # self.run_date = date_string(datetime.now().replace(day=1))
         # self.run_date = date_string((datetime.now() - timedelta(365 * 6)).replace(day=1))
-        self.run_date = "2021-10-01"
+        self.run_date = "2022-07-01"
         self.logger.info(f"Initializing task for {self.county} with run date {self.run_date}")
 
         self.test_start_date = datetime.strptime(self.run_date, "%Y-%m-%d")
@@ -52,7 +52,7 @@ class ETL_ML_Task(Task):
             month=(self.test_start_date.month - 1 if test_is_same_year else 12),
         )
 
-        self.train_years = 5
+        self.train_years = 2
         self.train_start_date = self.train_end_date.replace(year=(self.train_end_date.year - self.train_years))
 
         self.logger.info(f"Train years: {self.train_years}")
@@ -60,8 +60,8 @@ class ETL_ML_Task(Task):
         self.logger.info(f"Test dates: {date_string(self.test_start_date)} to {date_string(self.test_end_date)}")
 
         self.classification_label_names = [
-            # "sale_in_3_months",
-            "sale_in_6_months",
+            "sale_in_3_months",
+            # "sale_in_6_months",
             # "sale_in_12_months",
         ]
 
@@ -71,6 +71,7 @@ class ETL_ML_Task(Task):
         ]
 
         self.label_names = self.classification_label_names + self.regression_label_names
+        self.rus = RandomUnderSampler(sampling_strategy=0.1, random_state=1234)
 
     def launch(self):
         self.logger.info(f"Launching task")
@@ -166,8 +167,8 @@ class ETL_ML_Task(Task):
 
             parcel_ids = list(self.df_raw_encoded.Parid.unique())
 
-            if self.is_local:
-                parcel_ids = random.sample(parcel_ids, int(len(parcel_ids) * 0.1))
+            # if self.is_local:
+            #     parcel_ids = random.sample(parcel_ids, int(len(parcel_ids) * 0.5))
 
             parcel_ids_split = np.array_split(parcel_ids, self.cpu_count)
 
@@ -198,26 +199,31 @@ class ETL_ML_Task(Task):
         self.df_train = self.df_prepared.loc[
             (self.df_prepared.date >= self.train_start_date) & (self.df_prepared.date <= self.train_end_date)
         ].drop(columns=prepared_drop_columns)
+
         self.df_test = self.df_prepared.loc[
-            (self.df_prepared.date >= self.test_start_date) & (self.df_prepared.date <= self.test_end_date)
+            (self.df_prepared.date >= self.test_start_date)
+            & (self.df_prepared.date <= self.test_end_date)
+            & (self.df_prepared.months_since_last_sale > 1)
         ].drop(columns=prepared_drop_columns)
 
     def _train_models(self):
         gc.collect()
 
-        self.fit_jobs = 8 if self.is_local else int(self.cpu_count / len(self.label_names))
-        self.fit_minutes = 60 if self.is_local else 180
-        self.per_job_fit_minutes = 6 if self.is_local else 18
+        self.mlflow_client = MlflowClient()
+        self.mlflow_experiment = mlflow.set_experiment(f"/Shared/{self.county}")
+
+        # self.fit_jobs = 5 if self.is_local else int(self.cpu_count / len(self.label_names))
+        # self.total_jobs = 10
+
+        self.fit_minutes = 120 if self.is_local else 180
+        self.per_job_fit_minutes = 10 if self.is_local else 30
         self.per_job_fit_memory_limit_mb = (3 if self.is_local else 8) * 1024
 
-        self.logger.info(f"Total labels: {len(self.label_names)}")
-        self.logger.info(f"Jobs per label: {self.fit_jobs}")
+        # self.logger.info(f"Total labels: {len(self.label_names)}")
+        # self.logger.info(f"Jobs per label: {self.fit_jobs}")
         self.logger.info(f"Total fit minutes: {self.fit_minutes}")
         self.logger.info(f"Job fit minutes: {self.per_job_fit_minutes}")
         self.logger.info(f"Job memory limit (MB): {self.per_job_fit_memory_limit_mb}")
-
-        self.mlflow_client = MlflowClient()
-        self.mlflow_experiment = mlflow.set_experiment(f"/Shared/{self.county}")
 
         self.model_directories = {}
         procs = []
@@ -229,13 +235,14 @@ class ETL_ML_Task(Task):
             self.logger.info(f"{label_name}: {sum_labels}/{total_labels} ({p_labels:.2f}%)")
 
         for label_name in self.label_names:
-            self.logger.info(f"Initialize AutoML for {label_name}")
+            is_classification = label_name in self.classification_label_names
+            self.fit_jobs = 8 if is_classification else 4
+
+            self.logger.info(f"Initialize AutoML for {label_name} with {self.fit_jobs} jobs")
             self.model_directories[label_name] = os.path.join("data", "models", self.run_date, self.county, label_name)
 
             df_train = self.df_train.loc[self.df_train[label_name].notna()]
             df_test = self.df_test.loc[self.df_test[label_name].notna()]
-
-            is_classification = label_name in self.classification_label_names
 
             if is_classification:
                 X_train = df_train.drop(columns=self.label_names).to_numpy()
@@ -246,9 +253,7 @@ class ETL_ML_Task(Task):
 
                 log_y_label_stats(f"Train labels", y_train)
 
-                rus = RandomUnderSampler(sampling_strategy=0.1)
-                X_train_res, y_train_res = rus.fit_resample(X_train, y_train)
-
+                X_train_res, y_train_res = self.rus.fit_resample(X_train, y_train)
                 log_y_label_stats(f"Train labels resampled", y_train_res)
 
                 if len(y_test) > 0:
@@ -298,7 +303,7 @@ class ETL_ML_Task(Task):
 
         for label_name in self.label_names:
             model = mlflow.sklearn.load_model(self.model_directories[label_name])
-            self.logger.info("Model " + model.sprint_statistics())
+            self.logger.info(f"Model {label_name} " + model.sprint_statistics())
 
             df_train = self.df_train.loc[self.df_train[label_name].notna()]
             df_test = self.df_test.loc[self.df_test[label_name].notna()]
@@ -306,12 +311,15 @@ class ETL_ML_Task(Task):
             for index_of_df_temp, df_temp in enumerate([df_train, df_test]):
                 if len(df_temp) > 0:
                     type_of_df_temp = "training" if index_of_df_temp == 0 else "testing"
-                    self.logger.info(f"Metrics for {label_name} with {type_of_df_temp} data:")
+                    self.logger.info(f"Metrics with {type_of_df_temp} data:")
                     is_classification = label_name in self.classification_label_names
 
                     if is_classification:
                         X_test = df_temp.drop(columns=self.label_names).to_numpy()
                         y_test = df_temp[label_name].values
+
+                        if type_of_df_temp == "training":
+                            X_test, y_test = self.rus.fit_resample(X_test, y_test)
 
                         y_pred = model.predict(X_test)
                         log_y_label_stats(f"Pred labels", y_pred)

@@ -49,8 +49,8 @@ def get_parcel_prepared_data(parcel_ids, df_raw_encoded, train_start_date):
             for date_index, date in enumerate(months):
                 if date_index < total_months - 1:
                     prepared_data_object = {
-                        # "sale_in_3_months": has_next_sale(3, has_next_sale_date),
-                        "sale_in_6_months": has_next_sale(6, has_next_sale_date),
+                        "sale_in_3_months": has_next_sale(3, has_next_sale_date),
+                        # "sale_in_6_months": has_next_sale(6, has_next_sale_date),
                         # "sale_in_12_months": has_next_sale(12, has_next_sale_date),
                         "next_sale_amount": pd.to_numeric(row.next_sale_amount, errors="coerce"),
                         # "next_sale_months": (total_months - date_index - 1) if has_next_sale_date else np.nan,
@@ -59,6 +59,7 @@ def get_parcel_prepared_data(parcel_ids, df_raw_encoded, train_start_date):
                         "months_since_last_sale": months_since_last_sale,
                     }
 
+                    for column in df_raw_encoded_columns:
                     # for column in [
                     #     "Land Value",
                     #     "Building Value",
@@ -70,7 +71,51 @@ def get_parcel_prepared_data(parcel_ids, df_raw_encoded, train_start_date):
                     #     "last_sale_amount",
                     #     "last_sale_date",
                     # ]:
-                    for column in df_raw_encoded_columns:
+                    # for column in [
+                    #     "RecordingDate",
+                    #     "Grantor1NameFull",
+                    #     "SitusZip4",
+                    #     "TransferAmount",
+                    #     "Mortgage1Amount",
+                    #     "FinishedSquareFeet1",
+                    #     "SitusAddress",
+                    #     "YearBuilt",
+                    #     "GarageSquareFeet",
+                    #     "TaxAssessedValue",
+                    #     "BuildingSquarefeet",
+                    #     "LotSizeSquareFeet",
+                    #     "Longitude",
+                    #     "TaxImprovementValue",
+                    #     "APNAddedYear",
+                    #     "PropertyUseMuni",
+                    #     "LotSizeAcres",
+                    #     "TaxLandValue",
+                    #     "NumberofRooms",
+                    #     "LandMarketValue",
+                    #     "MarketImprovementValue",
+                    #     "SitusHouseNumber",
+                    #     "BedroomTotal",
+                    #     "Latitude",
+                    #     "Subdivision",
+                    #     "APNFormatted",
+                    #     "BathroomTotal",
+                    #     "SitusZip",
+                    #     "CongressionalDistrict",
+                    #     "SitusCRRT",
+                    #     "NumberOfStories",
+                    #     "MarketValue",
+                    #     "SitusAddressSuffix",
+                    #     "TaxImprovementPercent",
+                    #     "MarketImprovementPercent",
+                    #     "PropertyTypeKey",
+                    #     "BasementUnfinishedSquareFeet",
+                    #     "BasementFinishedSquareFeet",
+                    #     "NumberOfUnits",
+                    #     "EffectiveYearBuilt",
+                    #     "BasementSquareFeet",
+                    #     "last_sale_amount",
+                    #     "last_sale_date",
+                    # ]:
                         prepared_data_object[column] = row[column]
 
                     if date >= train_start_date:
