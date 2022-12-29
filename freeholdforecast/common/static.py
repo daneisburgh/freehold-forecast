@@ -1,11 +1,43 @@
+def get_df_county_common(county, landing_directory):
+    import os
+
+    from freeholdforecast.common.county_dfs import get_df_county
+    from freeholdforecast.common.utils import make_directory
+
+    county_landing_directory = os.path.join(landing_directory, county)
+    make_directory(county_landing_directory)
+
+    df_county = get_df_county(county, county_landing_directory)[
+        [
+            "Parid",
+            "Year of Sale",
+            "Month of Sale",
+            "Day of Sale",
+            "Owner Name 1",
+            "House #",
+            "Street Name",
+            "Street Suffix",
+            "Deed Type",
+            "Valid Sale",
+            "Sale Price",
+            "Building Value",
+            "Land Value",
+            "Tax District",
+            "Property Class",
+            "last_sale_amount",
+            "last_sale_date",
+        ]
+    ]
+    df_county["county"] = county
+
+    return df_county
+
+
 def get_parcel_prepared_data(parcel_ids, df_raw_encoded, train_start_date):
-    import numpy as np
     import pandas as pd
 
     from datetime import datetime
     from dateutil.rrule import rrule, MONTHLY
-
-    df_raw_encoded_columns = list(df_raw_encoded.columns)
 
     def get_months(start_date, end_date):
         # handle 02/29 error
@@ -59,63 +91,7 @@ def get_parcel_prepared_data(parcel_ids, df_raw_encoded, train_start_date):
                         "months_since_last_sale": months_since_last_sale,
                     }
 
-                    for column in df_raw_encoded_columns:
-                    # for column in [
-                    #     "Land Value",
-                    #     "Building Value",
-                    #     "Sale Price",
-                    #     "Tax District",
-                    #     "Property Class",
-                    #     "Valid Sale",
-                    #     "Deed Type",
-                    #     "last_sale_amount",
-                    #     "last_sale_date",
-                    # ]:
-                    # for column in [
-                    #     "RecordingDate",
-                    #     "Grantor1NameFull",
-                    #     "SitusZip4",
-                    #     "TransferAmount",
-                    #     "Mortgage1Amount",
-                    #     "FinishedSquareFeet1",
-                    #     "SitusAddress",
-                    #     "YearBuilt",
-                    #     "GarageSquareFeet",
-                    #     "TaxAssessedValue",
-                    #     "BuildingSquarefeet",
-                    #     "LotSizeSquareFeet",
-                    #     "Longitude",
-                    #     "TaxImprovementValue",
-                    #     "APNAddedYear",
-                    #     "PropertyUseMuni",
-                    #     "LotSizeAcres",
-                    #     "TaxLandValue",
-                    #     "NumberofRooms",
-                    #     "LandMarketValue",
-                    #     "MarketImprovementValue",
-                    #     "SitusHouseNumber",
-                    #     "BedroomTotal",
-                    #     "Latitude",
-                    #     "Subdivision",
-                    #     "APNFormatted",
-                    #     "BathroomTotal",
-                    #     "SitusZip",
-                    #     "CongressionalDistrict",
-                    #     "SitusCRRT",
-                    #     "NumberOfStories",
-                    #     "MarketValue",
-                    #     "SitusAddressSuffix",
-                    #     "TaxImprovementPercent",
-                    #     "MarketImprovementPercent",
-                    #     "PropertyTypeKey",
-                    #     "BasementUnfinishedSquareFeet",
-                    #     "BasementFinishedSquareFeet",
-                    #     "NumberOfUnits",
-                    #     "EffectiveYearBuilt",
-                    #     "BasementSquareFeet",
-                    #     "last_sale_amount",
-                    #     "last_sale_date",
-                    # ]:
+                    for column in list(df_raw_encoded.columns):
                         prepared_data_object[column] = row[column]
 
                     if date >= train_start_date:
@@ -129,14 +105,15 @@ def get_parcel_prepared_data(parcel_ids, df_raw_encoded, train_start_date):
     return pd.DataFrame(prepared_data)
 
 
-def train_model(training_type, task, label_name, model_directory, X_train, y_train, X_test, y_test):
+def train_model(training_type, task, label_name, n_jobs, model_directory, X_train, y_train, X_test, y_test):
     import mlflow
     import os
     import shutil
+    import time
 
     from autosklearn.classification import AutoSklearnClassifier
     from autosklearn.regression import AutoSklearnRegressor
-    from autosklearn.metrics import f1, r2, roc_auc
+    from autosklearn.metrics import f1, r2
     from sklearn.metrics import (
         confusion_matrix,
         average_precision_score,
@@ -160,21 +137,22 @@ def train_model(training_type, task, label_name, model_directory, X_train, y_tra
         task.mlflow_client.log_param(mlflow_run_id, "label_name", label_name)
         task.mlflow_client.log_param(mlflow_run_id, "metric", "f1" if is_classification else "r2")
         task.mlflow_client.log_param(mlflow_run_id, "train_years", task.train_years)
-        task.mlflow_client.log_param(mlflow_run_id, "fit_jobs", task.fit_jobs)
+        task.mlflow_client.log_param(mlflow_run_id, "fit_jobs", n_jobs)
         task.mlflow_client.log_param(mlflow_run_id, "fit_minutes", task.fit_minutes)
         task.mlflow_client.log_param(mlflow_run_id, "per_job_fit_minutes", task.per_job_fit_minutes)
-        task.mlflow_client.log_param(mlflow_run_id, "per_job_memory_limit_mb", task.per_job_fit_memory_limit_mb)
+        task.mlflow_client.log_param(mlflow_run_id, "per_job_memory_limit_gb", task.per_job_fit_memory_limit_gb)
 
         task.logger.info(f"Fitting model for {label_name}")
         time_left_for_this_task = 60 * task.fit_minutes
         per_run_time_limit = 60 * task.per_job_fit_minutes
+        per_job_fit_memory_limit_mb = int(task.per_job_fit_memory_limit_gb * 1024)
 
         if is_classification:
             model = AutoSklearnClassifier(
                 time_left_for_this_task=time_left_for_this_task,
                 per_run_time_limit=per_run_time_limit,
-                memory_limit=task.per_job_fit_memory_limit_mb,
-                n_jobs=task.fit_jobs,
+                memory_limit=per_job_fit_memory_limit_mb,
+                n_jobs=n_jobs,
                 metric=f1,
                 include={"classifier": ["gradient_boosting"]},
                 initial_configurations_via_metalearning=0,
@@ -183,8 +161,8 @@ def train_model(training_type, task, label_name, model_directory, X_train, y_tra
             model = AutoSklearnRegressor(
                 time_left_for_this_task=time_left_for_this_task,
                 per_run_time_limit=per_run_time_limit,
-                memory_limit=task.per_job_fit_memory_limit_mb,
-                n_jobs=task.fit_jobs,
+                memory_limit=per_job_fit_memory_limit_mb,
+                n_jobs=n_jobs,
                 metric=r2,
                 include={"regressor": ["gradient_boosting"]},
                 initial_configurations_via_metalearning=0,
@@ -200,6 +178,8 @@ def train_model(training_type, task, label_name, model_directory, X_train, y_tra
 
         mlflow.sklearn.log_model(model, model_directory)
         mlflow.sklearn.save_model(model, model_directory)
+
+        time.sleep(30)
 
         if os.getenv("APP_ENV") != "local":
             copy_directory_to_storage("models", model_directory)
@@ -228,3 +208,9 @@ def train_model(training_type, task, label_name, model_directory, X_train, y_tra
                 task.mlflow_client.log_metric(mlflow_run_id, "mape", mape_value)
 
         mlflow.end_run()
+
+
+def get_parcel_predict_data(last_sale_date, current_date):
+    from dateutil.rrule import rrule, MONTHLY
+
+    return len([x for x in rrule(dtstart=last_sale_date, until=current_date, freq=MONTHLY)])
