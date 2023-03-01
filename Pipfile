@@ -7,7 +7,7 @@ name = "pypi"
 python_version = "3.8"
 
 [packages]
-freeholdforecast = {editable = true, extras = ["dev"], path = "."}
+freeholdforecast = {extras = ["dev"], path = "."}
 
 [scripts]
 notebook = "jupyter notebook --allow-root"
