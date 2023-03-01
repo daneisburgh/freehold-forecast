@@ -1,4 +1,5 @@
 import glob
+import numpy as np
 import os
 import pandas as pd
 
@@ -9,6 +10,7 @@ download_format_info = {
     "new-format": {
         "files": [
             "transfer_ytd_new.csv",
+            "transfer_files_ytd_2022.csv",
             "transfer_files_ytd_2021.csv",
             "transfer_files_ytd_2020.csv",
             "transfer_files_ytd_2019.csv",
@@ -109,11 +111,33 @@ def get_df_hamilton(landing_directory):
     df["Land Value"] = df["Land Value"].apply(to_numeric)
     df["Year of Sale"] = df["Year of Sale"].apply(lambda year: year if year not in [98, 99] else year + 1900)
     df["Month of Sale"] = df["Month of Sale"].apply(lambda month: month if len(str(month)) == 2 else "0" + str(month))
-    df["last_sale_amount"] = pd.to_numeric(df["Sale Price"])
+    df["last_sale_price"] = pd.to_numeric(df["Sale Price"])
     df["last_sale_date"] = pd.to_datetime(
-        df[["Year of Sale", "Month of Sale"]].apply(lambda x: "-".join(x.astype(str)), axis=1), format="%Y-%m"
+        df[["Year of Sale", "Month of Sale", "Day of Sale"]].apply(lambda x: "-".join(x.astype(str)), axis=1),
+        format="%Y-%m-%d",
     )
+
+    df = pd.concat([df, get_df_historical_sales(landing_directory)])[
+        [
+            "Parid",
+            "Owner Name 1",
+            "House #",
+            "Street Name",
+            "Street Suffix",
+            "Deed Type",
+            "Valid Sale",
+            "Sale Price",
+            "Building Value",
+            "Land Value",
+            "Tax District",
+            "Property Class",
+            "last_sale_price",
+            "last_sale_date",
+        ]
+    ]
+
     df.sort_values(by="last_sale_date", ascending=True, inplace=True)
+    df = pd.merge(df, get_df_info(landing_directory), on="Parid", how="left")
     return df
 
 
@@ -122,10 +146,10 @@ def get_df_format(format_name, landing_directory):
 
     make_directory(format_directory)
 
-    for file_name in download_format_info[format_name]["files"]:
-        download_url = download_root_url + file_name
-        download_file_path = os.path.join(format_directory, file_name)
-        download_file_from_source(download_url, download_file_path)
+    # for file_name in download_format_info[format_name]["files"]:
+    #     download_url = download_root_url + file_name
+    #     download_file_path = os.path.join(format_directory, file_name)
+    #     download_file_from_source(download_url, download_file_path)
 
     dfs = []
     all_files = glob.glob(os.path.join(format_directory, "*.csv"))
@@ -141,3 +165,42 @@ def get_df_format(format_name, landing_directory):
         dfs.append(df)
 
     return pd.concat(dfs, ignore_index=True)
+
+
+def get_df_historical_sales(landing_directory):
+    file_name = "HistoricSalesExport.xlsx"
+    download_url = download_root_url + f"revalue/{file_name}"
+    download_file_path = os.path.join(landing_directory, file_name)
+    # download_file_from_source(download_url, download_file_path)
+    df = pd.read_excel(download_file_path)
+    df["Parid"] = df.parcel_number
+    df["Owner Name 1"] = df.owner_name_1
+    df["House #"] = df.house_number
+    df["Street Name"] = df.street_name
+    df["Street Suffix"] = df.street_suffix
+    df["Deed Type"] = df.instrument_type.str.split().str[0]
+    df["Valid Sale"] = "Y"
+    df["Sale Price"] = df.sale_price
+    df["Building Value"] = np.nan
+    df["Land Value"] = np.nan
+    df["Tax District"] = np.nan
+    df["Property Class"] = df.use_code
+    df["last_sale_date"] = df.date_of_sale
+    df["last_sale_price"] = df.sale_price
+    return df
+
+
+def get_df_info(landing_directory):
+    file_name = "bldginfo.xlsx"
+    download_url = download_root_url + f"revalue/{file_name}"
+    download_file_path = os.path.join(landing_directory, file_name)
+    # download_file_from_source(download_url, download_file_path)
+    df = pd.read_excel(download_file_path)
+    df["Parid"] = df.PARCELID
+    df["SQFT_FLR1"] = pd.to_numeric(df.SQFT_FLR1)
+    df["SQFT_FLR2"] = pd.to_numeric(df.SQFT_FLR2)
+    df["SQFT_FLRH"] = pd.to_numeric(df.SQFT_FLRH)
+    df["Livable Sqft"] = df.SQFT_FLR1 + df.SQFT_FLR2 + df.SQFT_FLRH
+    df["Stories"] = pd.to_numeric(df.STORYHT)
+    df["Year Built"] = pd.to_numeric(df.YEARBUILT)
+    return df[["Parid", "Livable Sqft", "Stories", "Year Built"]]
