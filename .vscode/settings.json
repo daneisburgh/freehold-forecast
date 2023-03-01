@@ -1,0 +1,9 @@
+{
+    "jupyter.widgetScriptSources": [
+        "jsdelivr.com",
+        "unpkg.com"
+    ],
+    "python.formatting.provider": "black",
+    "python.linting.enabled": false,
+    "python.linting.lintOnSave": false,
+}
