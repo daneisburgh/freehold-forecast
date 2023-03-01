@@ -24,6 +24,9 @@ def get_container_client(container):
 
 
 def copy_file_to_storage(container, file_path_local, container_client=None):
+    if os.getenv("APP_ENV") == "local":
+        return
+
     if container_client is None:
         container_client = get_container_client(container)
 
@@ -47,11 +50,21 @@ def copy_file_to_storage(container, file_path_local, container_client=None):
 
 
 def copy_directory_to_storage(container, directory_path):
+    if os.getenv("APP_ENV") == "local":
+        return
+
     container_client = get_container_client(container)
 
     for r, d, f in os.walk(directory_path):
         for file in f:
             copy_file_to_storage(container, os.path.join(r, file), container_client)
+
+
+def download_file_from_storage(container, file_path):
+    container_client = get_container_client(container)
+
+    with open(file=file_path, mode="wb") as download_file:
+        download_file.write(container_client.download_blob(file_path).readall())
 
 
 def date_string(date):
@@ -79,3 +92,7 @@ def make_directory(directory_path):
 
 def to_numeric(value):
     return pd.to_numeric(value, errors="coerce")
+
+
+def diff_month(start_date, end_date):
+    return int((end_date.year - start_date.year) * 12 + end_date.month - start_date.month)
