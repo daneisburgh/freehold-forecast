@@ -11,13 +11,18 @@ from freeholdforecast import __version__
 PACKAGE_REQUIREMENTS = [
     "auto-sklearn",
     "azure-storage-blob",
+    "boto3",
+    "googlemaps",
     "imbalanced-learn",
     "ipywidgets",
     "mlflow",
+    "openpyxl",
     "pandas",
+    "psycopg2",
     "pyarrow",
     "pyyaml",
     "scikit-learn",
+    "sqlalchemy",
 ]
 
 DEV_REQUIREMENTS = [
