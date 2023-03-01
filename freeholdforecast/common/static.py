@@ -1,39 +1,74 @@
-def get_df_county_common(county, landing_directory):
-    import os
+# def get_df_attom_recorder_additional_data(row, assessor_columns, recorder_columns):
+#     import numpy as np
+#     import pandas as pd
 
-    from freeholdforecast.common.county_dfs import get_df_county
-    from freeholdforecast.common.utils import make_directory
+#     from datetime import datetime, timedelta
 
-    county_landing_directory = os.path.join(landing_directory, county)
-    make_directory(county_landing_directory)
+#     from freeholdforecast.common.utils import date_string
 
-    df_county = get_df_county(county, county_landing_directory)[
-        [
-            "Parid",
-            "Year of Sale",
-            "Month of Sale",
-            "Day of Sale",
-            "Owner Name 1",
-            "House #",
-            "Street Name",
-            "Street Suffix",
-            "Deed Type",
-            "Valid Sale",
-            "Sale Price",
-            "Building Value",
-            "Land Value",
-            "Tax District",
-            "Property Class",
-            "last_sale_amount",
-            "last_sale_date",
-        ]
-    ]
-    df_county["county"] = county
+#     recorder_additional_object = {}
 
-    return df_county
+#     ignore_assessor_columns = [
+#         "TaxYearAssessed",
+#         "TaxAssessedValueTotal",
+#         "TaxAssessedValueImprovements",
+#         "TaxAssessedValueLand",
+#         "PreviousAssessedValue",
+#         "TaxMarketValueYear",
+#         "TaxMarketValueTotal",
+#         "TaxMarketValueImprovements",
+#         "TaxMarketValueLand",
+#         "TaxExemptionHomeownerFlag",
+#     ]
+
+#     for column in assessor_columns:
+#         recorder_additional_object[column] = (
+#             np.nan if column in recorder_columns or column in ignore_assessor_columns else row[column]
+#         )
+
+#     recorder_additional_object["InstrumentDate"] = np.nan
+#     recorder_additional_object["TransferAmount"] = np.nan
+
+#     # min_year_built = datetime.now().year - max_year_diff
+
+#     if pd.notna(row["YearBuilt"]):
+#         year_built = int(row["YearBuilt"])
+
+#         # if year_built < min_year_built:
+#         #     year_built = min_year_built
+
+#         recorder_additional_object["InstrumentDate"] = date_string(datetime(year_built, 1, 1))
+
+#     return recorder_additional_object
 
 
-def get_parcel_prepared_data(parcel_ids, df_raw_encoded, train_start_date):
+def get_df_additional_data(row, all_columns, ignore_columns):
+    import numpy as np
+    import pandas as pd
+
+    from datetime import datetime, timedelta
+
+    from freeholdforecast.common.utils import date_string
+
+    additional_object = {}
+
+    for column in all_columns:
+        additional_object[column] = np.nan if column in ignore_columns else row[column]
+
+    year_built = int(row["Year Built"])
+
+    additional_object["last_sale_date"] = date_string(datetime(year_built, 1, 1))
+
+    return additional_object
+
+
+def get_parcel_prepared_data(
+    parcel_ids,
+    df_raw_encoded,
+    train_start_date,
+    min_months_since_last_sale,
+    # max_months_since_last_sale,
+):
     import pandas as pd
 
     from datetime import datetime
@@ -44,7 +79,10 @@ def get_parcel_prepared_data(parcel_ids, df_raw_encoded, train_start_date):
         if start_date.month == 2 and start_date.day == 29:
             start_date = start_date.replace(month=3, day=1)
 
-        end_date = end_date if pd.notnull(end_date) else datetime.now()
+        start_date = start_date.replace(day=1)
+
+        end_date = end_date if pd.notna(end_date) else datetime.now()
+        end_date = end_date.replace(day=1)
 
         return [
             x
@@ -55,49 +93,50 @@ def get_parcel_prepared_data(parcel_ids, df_raw_encoded, train_start_date):
             )
         ]
 
-    def has_next_sale(date_diff, has_next_sale_date):
-        return 1 if date_index >= (total_months - date_diff - 1) and has_next_sale_date else 0
+    # def has_next_sale(date_diff, has_next_sale_date):
+    #     return 1 if date_index >= (total_months - date_diff - 1) and has_next_sale_date else 0
 
     prepared_data = []
 
     for parcel_id in parcel_ids:
         months_since_last_sale = 0
+        months_since_year_built = 0
 
-        df_parcel_sales = (
-            df_raw_encoded.loc[df_raw_encoded.Parid == parcel_id]
-            .sort_values(by="last_sale_date", ascending=True)
-            .reset_index(drop=True)
+        df_parcel_sales = df_raw_encoded.loc[df_raw_encoded.Parid == parcel_id].sort_values(
+            by="last_sale_date", ascending=True, ignore_index=True
         )
 
-        df_parcel_sales["next_sale_date"] = df_parcel_sales.last_sale_date.shift(-1)
-        df_parcel_sales["next_sale_amount"] = df_parcel_sales.last_sale_amount.shift(-1)
+        # df_parcel_sales["next_sale_date"] = df_parcel_sales.last_sale_date.shift(-1)
+        # df_parcel_sales["next_sale_price"] = df_parcel_sales.last_sale_price.shift(-1)
 
         for row_index, row in df_parcel_sales.iterrows():
-            has_next_sale_date = pd.notnull(row.next_sale_date)
+            has_next_sale_date = pd.notna(row.next_sale_date)
 
             months = get_months(row.last_sale_date, row.next_sale_date)
             total_months = len(months)
 
             for date_index, date in enumerate(months):
-                if date_index < total_months - 1:
-                    prepared_data_object = {
-                        "sale_in_3_months": has_next_sale(3, has_next_sale_date),
-                        # "sale_in_6_months": has_next_sale(6, has_next_sale_date),
-                        # "sale_in_12_months": has_next_sale(12, has_next_sale_date),
-                        "next_sale_amount": pd.to_numeric(row.next_sale_amount, errors="coerce"),
-                        # "next_sale_months": (total_months - date_index - 1) if has_next_sale_date else np.nan,
-                        "date": date.replace(day=1),
-                        "month": date.month,
-                        "months_since_last_sale": months_since_last_sale,
-                    }
+                if (total_months - 1) > date_index:
+                    if date >= train_start_date and months_since_last_sale >= min_months_since_last_sale:
+                        # if date >= train_start_date:
+                        prepared_data_object = {
+                            # "sale_in_3_months": has_next_sale(3, has_next_sale_date),
+                            "sale_in_3_months": 1 if date_index >= (total_months - 4) and has_next_sale_date else 0,
+                            "next_sale_price": pd.to_numeric(row.next_sale_price, errors="coerce"),
+                            "next_sale_date": row.next_sale_date,
+                            "date": date.replace(day=1),
+                            # "month": date.month,
+                            "months_since_last_sale": months_since_last_sale,
+                            "months_since_year_built": months_since_year_built,
+                        }
 
-                    for column in list(df_raw_encoded.columns):
-                        prepared_data_object[column] = row[column]
+                        for column in list(df_raw_encoded.columns):
+                            prepared_data_object[column] = row[column]
 
-                    if date >= train_start_date:
                         prepared_data.append(prepared_data_object)
 
                     months_since_last_sale += 1
+                    months_since_year_built += 1
 
                     if date_index == total_months - 2:
                         months_since_last_sale = 0
@@ -126,7 +165,7 @@ def train_model(training_type, task, label_name, n_jobs, model_directory, X_trai
 
     from freeholdforecast.common.utils import copy_directory_to_storage
 
-    task.logger = task._prepare_logger()  # reset logger
+    # task.logger = task._prepare_logger()  # reset logger
 
     is_classification = training_type == "classification"
     mlflow_run = task.mlflow_client.create_run(task.mlflow_experiment.experiment_id)
@@ -142,10 +181,11 @@ def train_model(training_type, task, label_name, n_jobs, model_directory, X_trai
         task.mlflow_client.log_param(mlflow_run_id, "per_job_fit_minutes", task.per_job_fit_minutes)
         task.mlflow_client.log_param(mlflow_run_id, "per_job_memory_limit_gb", task.per_job_fit_memory_limit_gb)
 
-        task.logger.info(f"Fitting model for {label_name}")
+        # task.logger.info(f"Fitting model for {label_name}")
         time_left_for_this_task = 60 * task.fit_minutes
         per_run_time_limit = 60 * task.per_job_fit_minutes
         per_job_fit_memory_limit_mb = int(task.per_job_fit_memory_limit_gb * 1024)
+        resampling_strategy = "cv"
 
         if is_classification:
             model = AutoSklearnClassifier(
@@ -156,6 +196,12 @@ def train_model(training_type, task, label_name, n_jobs, model_directory, X_trai
                 metric=f1,
                 include={"classifier": ["gradient_boosting"]},
                 initial_configurations_via_metalearning=0,
+                resampling_strategy=resampling_strategy,
+                resampling_strategy_arguments={
+                    "train_size": 0.67,
+                    "shuffle": True,
+                    "folds": 3,
+                },
             )
         else:
             model = AutoSklearnRegressor(
@@ -166,23 +212,28 @@ def train_model(training_type, task, label_name, n_jobs, model_directory, X_trai
                 metric=r2,
                 include={"regressor": ["gradient_boosting"]},
                 initial_configurations_via_metalearning=0,
+                resampling_strategy=resampling_strategy,
+                resampling_strategy_arguments={
+                    "train_size": 0.67,
+                    "shuffle": True,
+                    "folds": 5,
+                },
             )
 
         model.fit(X_train, y_train)
 
-        task.logger = task._prepare_logger()  # reset logger
-        task.logger.info(f"Saving model for {label_name}")
+        # task.logger = task._prepare_logger()  # reset logger
+        # task.logger.info(f"Saving model for {label_name}")
 
         if os.path.exists(model_directory):
             shutil.rmtree(model_directory)
 
+        time.sleep(10)
         mlflow.sklearn.log_model(model, model_directory)
+        time.sleep(10)
         mlflow.sklearn.save_model(model, model_directory)
 
-        time.sleep(30)
-
-        if os.getenv("APP_ENV") != "local":
-            copy_directory_to_storage("models", model_directory)
+        copy_directory_to_storage("models", model_directory)
 
         if len(X_test) > 0:
             y_pred = model.predict(X_test)
@@ -210,7 +261,21 @@ def train_model(training_type, task, label_name, n_jobs, model_directory, X_trai
         mlflow.end_run()
 
 
-def get_parcel_predict_data(last_sale_date, current_date):
-    from dateutil.rrule import rrule, MONTHLY
+def get_parcel_months_since_last_sale(last_sale_date, current_date):
+    from freeholdforecast.common.utils import diff_month
 
-    return len([x for x in rrule(dtstart=last_sale_date, until=current_date, freq=MONTHLY)])
+    return diff_month(last_sale_date, current_date)
+
+
+def get_parcel_months_since_year_built(year_built, current_date):
+    import numpy as np
+    import pandas as pd
+
+    from datetime import datetime
+    from freeholdforecast.common.utils import diff_month
+
+    return (
+        np.nan
+        if pd.isna(year_built) or int(year_built) < 1800
+        else diff_month(datetime(int(year_built), 1, 1), current_date)
+    )
