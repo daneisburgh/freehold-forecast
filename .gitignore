@@ -17,9 +17,6 @@ htmlcov/*
 # Caches
 .pytest_cache/
 
-# VSCode
-.vscode/
-
 # Idea
 .idea/
 *.iml
