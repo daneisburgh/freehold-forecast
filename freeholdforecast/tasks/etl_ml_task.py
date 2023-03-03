@@ -77,8 +77,8 @@ class ETL_ML_Task(Task):
 
         self.min_months_since_last_sale = 12 * 20
         # self.max_months_since_last_sale = 12 * 100
-        self.min_sale_price_quantile = 0.10
-        self.max_sale_price_quantile = 0.99
+        # self.min_sale_price_quantile = 0.10
+        # self.max_sale_price_quantile = 0.99
 
         self.classification_label_names = ["sale_in_3_months"]
         self.regression_label_names = ["next_sale_price"]
@@ -116,7 +116,7 @@ class ETL_ML_Task(Task):
         for label_name in self.label_names:
             self.model_directories[label_name] = os.path.join("data", "models", self.run_date, self.state, label_name)
 
-        self.rus_strategy = 0.1  # BEST RUN 0.05
+        self.rus_strategy = 0.05  # BEST RUN 0.05
         self.rus = RandomUnderSampler(sampling_strategy=self.rus_strategy, random_state=1234)
 
     def launch(self):
@@ -170,10 +170,7 @@ class ETL_ML_Task(Task):
 
         predictions_to_update = engine.execute(
             prediction_table.select().where(
-                (prediction_table.c.predictionPeriodStart == self.prediction_period_start_date)
-                & (prediction_table.c.predictionPeriodEnd == self.prediction_period_end_date)
-                & (prediction_table.c.actualSalePrice.is_(None))
-                & (prediction_table.c.actualSaleDate.is_(None))
+                (prediction_table.c.actualSalePrice.is_(None)) & (prediction_table.c.actualSaleDate.is_(None))
             )
         ).all()
 
@@ -185,25 +182,25 @@ class ETL_ML_Task(Task):
         else:
             self.logger.info(f"Attempting to update {total_predictions_to_update} predictions")
 
-            df_raw_update = (
-                self.df_raw.loc[
-                    self.df_raw.last_sale_date.notna()
-                    & self.df_raw.last_sale_price.notna()
-                    & self.df_raw.Parid.isin([x.parcel for x in predictions_to_update])
-                    & self.df_raw.County.isin(list(set([x.county for x in predictions_to_update])))
-                    & self.df_raw.State.isin(list(set([x.state for x in predictions_to_update])))
-                    & (self.df_raw.last_sale_date >= self.prediction_period_start_date)
-                ]
-                .sort_values("last_sale_date")
-                .drop_duplicates(subset="Parid", keep="first", ignore_index=True)
-            )
+            df_raw_update = self.df_raw.loc[
+                self.df_raw.last_sale_date.notna()
+                & self.df_raw.last_sale_price.notna()
+                & self.df_raw.Parid.isin([x.parcel for x in predictions_to_update])
+                & self.df_raw.County.isin(list(set([x.county for x in predictions_to_update])))
+                & self.df_raw.State.isin(list(set([x.state for x in predictions_to_update])))
+            ]
 
             for p in predictions_to_update:
-                df_existing_prediction = df_raw_update.loc[
-                    (df_raw_update.Parid == p.parcel)
-                    & (df_raw_update.County == p.county)
-                    & (df_raw_update.State == p.state)
-                ]
+                df_existing_prediction = (
+                    df_raw_update.loc[
+                        (df_raw_update.Parid == p.parcel)
+                        & (df_raw_update.County == p.county)
+                        & (df_raw_update.State == p.state)
+                        & (df_raw_update.last_sale_date.dt.date >= p.predictionPeriodStart)
+                    ]
+                    .sort_values("last_sale_date")
+                    .drop_duplicates(subset="Parid", keep="first", ignore_index=True)
+                )
 
                 if len(df_existing_prediction) > 0:
                     total_predictions_updated += 1
@@ -395,7 +392,7 @@ class ETL_ML_Task(Task):
         if self.is_local:
             # max_jobs = self.cpu_count - 3
             self.fit_minutes = 60
-            self.per_job_fit_minutes = 10  # BEST RUN 15
+            self.per_job_fit_minutes = 15  # BEST RUN 15
             self.per_job_fit_memory_limit_gb = 3.5
 
         self.logger.info(f"Total fit minutes: {self.fit_minutes}")
@@ -718,6 +715,7 @@ class ETL_ML_Task(Task):
         ]
 
         self.logger.info(f"Total predictions: {len(self.df_predictions)}")
+        self.df_predictions["goodSale"] = None
 
         if "sale_in_3_months" in list(self.df_predictions.columns):
             acc_pred_sale_in_3_months = self.df_predictions.sale_in_3_months.sum() / len(self.df_predictions)
@@ -737,6 +735,16 @@ class ETL_ML_Task(Task):
             self.logger.info(f"Final accuracy for sale_in_3_months: {acc_pred_sale_in_3_months:.3f}")
             self.logger.info(f"Final accuracy for next_sale_price: {acc_pred_next_sale_price:.3f}")
             self.logger.info(f"Final accuracy for next_sale_price_lower/upper: {acc_pred_next_sale_price_bound:.3f}")
+
+            def get_good_sale(row):
+                return (
+                    row["next_sale_price"] > (row["Building Value"] + row["Land Value"])
+                    and (pd.isna(row["next_same_owner"]) or row["next_same_owner"] == 0)
+                    and (pd.isna(row["next_business_owner"]) or row["next_business_owner"] == 0)
+                )
+
+            self.df_predictions["goodSale"] = self.df_predictions.apply(get_good_sale, axis=1)
+            df_predictions_ignore_sales = self.df_predictions.loc[self.df_predictions.goodSale == True]
 
             df_predictions_ignore_sales = self.df_predictions.loc[
                 (
@@ -760,6 +768,8 @@ class ETL_ML_Task(Task):
                 f"Final accuracy for next_sale_price_lower/upper with ignored sales: {acc_pred_next_sale_price_bound:.3f}"
             )
 
+        self.df_predictions = self.df_predictions.astype(str)
+
         for column in [
             "Year Built",
             "Stories",
@@ -770,7 +780,12 @@ class ETL_ML_Task(Task):
             "pred_next_sale_price",
         ]:
             self.df_predictions[column] = self.df_predictions[column].apply(
-                lambda value: None if value == "nan" or pd.isna(value) else int(pd.to_numeric(value))
+                lambda value: None if pd.isna(value) or pd.isnull(value) else pd.to_numeric(value, errors="coerce")
+            )
+
+        for column in list(self.df_predictions.columns):
+            self.df_predictions[column] = self.df_predictions[column].apply(
+                lambda value: None if pd.isna(value) or str(value).lower() in ["nan", "nat", "none"] else value
             )
 
         self.df_predictions["Prediction Period Start"] = self.prediction_period_start_date
@@ -781,10 +796,11 @@ class ETL_ML_Task(Task):
                 lambda value: None if pd.isna(value) else pd.to_datetime(value).date()
             )
 
-        self.df_predictions["next_sale_price"] = None
-        self.df_predictions["next_sale_date"] = None
-        self.df_predictions["updatedAt"] = datetime.utcnow()
+        self.df_predictions["goodSale"] = self.df_predictions["goodSale"].map(
+            {"None": None, "True": True, "False": False}
+        )
 
+        self.df_predictions["updatedAt"] = datetime.utcnow()
         self.df_predictions = self.df_predictions[
             [
                 "Prediction Period Start",
@@ -800,9 +816,11 @@ class ETL_ML_Task(Task):
                 "Livable Sqft",
                 "Building Value",
                 "Land Value",
+                "last_sale_date",
                 "pred_next_sale_price",
                 "next_sale_price",
                 "next_sale_date",
+                "goodSale",
                 "updatedAt",
             ]
         ].rename(
@@ -820,11 +838,14 @@ class ETL_ML_Task(Task):
                 "Livable Sqft": "livableSqft",
                 "Building Value": "buildingValue",
                 "Land Value": "landValue",
+                "last_sale_date": "lastSaleDate",
                 "pred_next_sale_price": "predictedSalePrice",
                 "next_sale_price": "actualSalePrice",
                 "next_sale_date": "actualSaleDate",
             },
         )
+
+        self.df_predictions = self.df_predictions.replace({np.nan: None})
 
         predictions_directory = os.path.join("data", "predictions", self.run_date, self.state)
         make_directory(predictions_directory)
