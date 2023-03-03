@@ -108,6 +108,7 @@ class Task(ABC):
         )
         logging.getLogger("asyncio.events").setLevel(logging.CRITICAL)
         logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(logging.WARNING)
+        logging.getLogger("googlemaps.client").setLevel(logging.WARNING)
         logging.getLogger("mlflow.tracking.fluent").setLevel(logging.WARNING)
         logging.getLogger("py4j.java_gateway").setLevel(logging.WARNING)
         return logging.getLogger(self.__class__.__name__)
