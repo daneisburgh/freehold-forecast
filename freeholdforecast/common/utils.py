@@ -1,6 +1,7 @@
 import os
 import pandas as pd
 import requests
+import shutil
 
 from azure.storage.blob import BlobServiceClient
 
@@ -90,9 +91,21 @@ def make_directory(directory_path):
         os.makedirs(directory_path)
 
 
+def remove_directory(directory_path):
+    if os.path.exists(directory_path) and os.path.isdir(directory_path):
+        shutil.rmtree(directory_path)
+
+
 def to_numeric(value):
     return pd.to_numeric(value, errors="coerce")
 
 
 def diff_month(start_date, end_date):
-    return int((end_date.year - start_date.year) * 12 + end_date.month - start_date.month)
+    import math
+
+    # return int((end_date.year - start_date.year) * 12 + end_date.month - start_date.month)
+    return math.floor(((end_date.year - start_date.year) * 12 + end_date.month - start_date.month) / 12)
+
+
+def round_base(value, base):
+    return None if pd.isna(value) else int(round(value / base)) * base
