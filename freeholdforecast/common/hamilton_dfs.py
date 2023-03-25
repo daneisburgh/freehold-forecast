@@ -131,12 +131,15 @@ def get_df_hamilton(landing_directory):
             "Land Value",
             "Tax District",
             "Property Class",
+            "Year of Sale",
+            "Month of Sale",
+            "Day of Sale",
             "last_sale_price",
             "last_sale_date",
         ]
     ]
 
-    df.sort_values(by="last_sale_date", ascending=True, inplace=True)
+    df.sort_values(by="last_sale_date", ascending=True, ignore_index=True, inplace=True)
     df = pd.merge(df, get_df_info(landing_directory), on="Parid", how="left")
     return df
 

@@ -7,8 +7,8 @@ from multiprocessing import Pool
 
 from freeholdforecast.common.dat_dfs import get_df_dat
 from freeholdforecast.common.hamilton_dfs import get_df_hamilton
-from freeholdforecast.common.static import get_df_additional_data
-from freeholdforecast.common.utils import make_directory
+from freeholdforecast.common.static import get_df_additional_data, is_valid_sale
+from freeholdforecast.common.utils import make_directory, to_numeric
 
 
 state_counties = {
@@ -49,15 +49,15 @@ def get_df_county(task, county, landing_directory):
 
     df.sort_values(by="last_sale_date", inplace=True, ignore_index=True)
 
-    df["House #"] = pd.to_numeric(df["House #"], errors="coerce")
-    df["Year Built"] = pd.to_numeric(df["Year Built"], errors="coerce")
-    df["last_sale_price"] = pd.to_numeric(df["last_sale_price"], errors="coerce")
+    df["House #"] = to_numeric(df["House #"])
+    df["Year Built"] = to_numeric(df["Year Built"])
+    df["last_sale_price"] = to_numeric(df["last_sale_price"])
     df["Stories"] = df.Stories.apply(lambda x: np.nan if pd.isna(x) else int(np.ceil(x)))
 
     min_sale_year = 1900
 
     df = df.loc[
-        (df["House #"].notna() & (df["House #"] > 0) & (df["House #"] < 100000))
+        (df["House #"].notna() & (df["House #"] > 0) & (df["House #"] < 1000000))
         & (df["last_sale_price"].notna() & (df["last_sale_price"] > 1000))
     ]
 
@@ -102,11 +102,17 @@ def get_df_county(task, county, landing_directory):
         )
     )
 
-    df_all = pd.concat([df, df_additional], copy=False, ignore_index=True)
+    df_all = pd.concat([df_additional, df], copy=False, ignore_index=True)
     df_all["last_sale_date"] = pd.to_datetime(df_all.last_sale_date)
     df_all["last_sale_year"] = df_all.last_sale_date.dt.year
-    df_all.sort_values(by="last_sale_date", inplace=True, ignore_index=True)
     df_all = drop_duplicate_sale_years(df_all)
+    df_all.sort_values(by="last_sale_date", inplace=True, ignore_index=True)
+
+    for column in ["Building Value", "Land Value", "Tax District", "Year Built"]:
+        df_all[column] = to_numeric(df_all[column])
+        df_all[column] = df_all.groupby("Parid", as_index=False)[column].transform(lambda x: x.bfill())
+        df_all[column] = df_all.groupby("Parid", as_index=False)[column].transform(lambda x: x.ffill())
+        # df_all = df_all.loc[df_all[column].notna()]
 
     def is_same_owner(row):
         owner = row["Owner Name 1"]
@@ -137,7 +143,7 @@ def get_df_county(task, county, landing_directory):
 
     def is_business_owner(owner):
         owner_lower = "" if pd.isna(owner) else str(owner).lower()
-        business_identifiers = [" inc", " llc", " ltc"]
+        business_identifiers = [" inc", " llc", " ltd"]
 
         for x in business_identifiers:
             if x in owner_lower:
@@ -145,17 +151,15 @@ def get_df_county(task, county, landing_directory):
 
         return 0
 
-    df_all.sort_values(by="last_sale_date", inplace=True, ignore_index=True)
     df_all["Last Owner Name 1"] = df_all.groupby("Parid")["Owner Name 1"].shift()
-    df_all["same_owner"] = df_all.apply(lambda row: is_same_owner(row), axis=1)
-    df_all["business_owner"] = df_all["Owner Name 1"].apply(lambda x: is_business_owner(x))
+    df_all["same_owner"] = df_all.apply(is_same_owner, axis=1)
+    df_all["business_owner"] = df_all["Owner Name 1"].apply(is_business_owner)
+    df_all["valid_sale"] = df_all.apply(is_valid_sale, axis=1)
     df_all["next_sale_date"] = df_all.groupby("Parid").last_sale_date.shift(-1)
     df_all["next_sale_price"] = df_all.groupby("Parid").last_sale_price.shift(-1)
     df_all["next_same_owner"] = df_all.groupby("Parid").same_owner.shift(-1)
     df_all["next_business_owner"] = df_all.groupby("Parid").business_owner.shift(-1)
-
+    df_all["next_valid_sale"] = df_all.groupby("Parid").valid_sale.shift(-1)
     df_all = df_all.loc[df_all.last_sale_date.dt.year > min_sale_year]
-    # df_all = df_all.loc[~df_all.Parid.isin(get_single_sale_parcels(df_all))]
-    # df_all.drop(columns="last_sale_year", inplace=True)
 
     return df_all.astype(str)

@@ -171,6 +171,6 @@ def get_df_attom(task, landing_directory):
     df["Parid"] = df["ParcelNumberRaw"]
     df["last_sale_date"] = pd.to_datetime(df.InstrumentDate)
     df["last_sale_price"] = pd.to_numeric(df.TransferAmount)
-    df.sort_values(by="last_sale_date", ascending=True, inplace=True)
+    df.sort_values(by="last_sale_date", ascending=True, ignore_index=True, inplace=True)
 
     return df

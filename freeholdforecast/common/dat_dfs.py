@@ -9,7 +9,7 @@ from freeholdforecast.common.utils import download_file_from_source, make_direct
 def get_df_dat(county, landing_directory):
     download_urls = {
         "ohio-butler": "https://www.butlercountyauditor.org/butler_oh_reports/AA407_files.zip",
-        "ohio-clermont": "https://www.clermontauditor.org/wp-content/uploads/PublicAccess/AA407_2022.zip",
+        "ohio-clermont": "https://www.clermontauditor.org/wp-content/uploads/PublicAccess/Clermont_AA407.zip",
     }
 
     download_url = download_urls[county]
@@ -624,7 +624,7 @@ def get_df_sales(data_directory):
 
     df_sales["last_sale_price"] = pd.to_numeric(df_sales.Price)
     df_sales["last_sale_date"] = pd.to_datetime(df_sales.Saledt, format="%d-%b-%y").apply(update_invalid_years)
-    df_sales.sort_values(by="last_sale_date", ascending=True, inplace=True)
+    df_sales.sort_values(by="last_sale_date", ascending=True, ignore_index=True, inplace=True)
 
     df_sales.Saletype.replace(pd.NA, 0, inplace=True)
     df_sales.Saletype.replace("I", 1, inplace=True)
