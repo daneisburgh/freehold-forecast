@@ -67,12 +67,14 @@ def get_parcel_prepared_data(
     df_raw_encoded,
     train_start_date,
     min_months_since_last_sale,
-    # max_months_since_last_sale,
 ):
+    import math
     import pandas as pd
 
     from datetime import datetime
     from dateutil.rrule import rrule, MONTHLY
+
+    from freeholdforecast.common.utils import to_numeric, round_base
 
     def get_months(start_date, end_date):
         # handle 02/29 error
@@ -92,9 +94,6 @@ def get_parcel_prepared_data(
                 freq=MONTHLY,
             )
         ]
-
-    # def has_next_sale(date_diff, has_next_sale_date):
-    #     return 1 if date_index >= (total_months - date_diff - 1) and has_next_sale_date else 0
 
     prepared_data = []
 
@@ -118,20 +117,33 @@ def get_parcel_prepared_data(
             for date_index, date in enumerate(months):
                 if (total_months - 1) > date_index:
                     if date >= train_start_date and months_since_last_sale >= min_months_since_last_sale:
-                        # if date >= train_start_date:
+
+                        def has_next_sale(date_diff, has_next_sale_date):
+                            return 1 if date_index >= (total_months - date_diff - 1) and has_next_sale_date else 0
+                            # return 1 if date_index == (total_months - date_diff - 1) and has_next_sale_date else 0
+
                         prepared_data_object = {
-                            # "sale_in_3_months": has_next_sale(3, has_next_sale_date),
-                            "sale_in_3_months": 1 if date_index >= (total_months - 4) and has_next_sale_date else 0,
-                            "next_sale_price": pd.to_numeric(row.next_sale_price, errors="coerce"),
+                            "sale_in_3_months": has_next_sale(3, has_next_sale_date),
+                            "sale_in_6_months": has_next_sale(6, has_next_sale_date),
+                            "sale_in_12_months": has_next_sale(12, has_next_sale_date),
+                            "next_sale_price": to_numeric(row.next_sale_price),
                             "next_sale_date": row.next_sale_date,
+                            "next_valid_sale": row.next_valid_sale,
                             "date": date.replace(day=1),
                             # "month": date.month,
-                            "months_since_last_sale": months_since_last_sale,
-                            "months_since_year_built": months_since_year_built,
+                            # "months_since_last_sale": months_since_last_sale,
+                            # "months_since_year_built": months_since_year_built,
+                            "months_since_last_sale": math.floor(months_since_last_sale / 12),
+                            "months_since_year_built": math.floor(months_since_year_built / 12),
                         }
 
                         for column in list(df_raw_encoded.columns):
                             prepared_data_object[column] = row[column]
+
+                        prepared_data_object["Livable Sqft Rounded"] = round_base(row["Livable Sqft"], 250)
+                        prepared_data_object["Sale Price Rounded"] = round_base(row["Sale Price"], 50000)
+                        prepared_data_object["Building Value Rounded"] = round_base(row["Building Value"], 25000)
+                        prepared_data_object["Land Value Rounded"] = round_base(row["Land Value"], 25000)
 
                         prepared_data.append(prepared_data_object)
 
@@ -145,6 +157,7 @@ def get_parcel_prepared_data(
 
 
 def train_model(training_type, task, label_name, n_jobs, model_directory, X_train, y_train, X_test, y_test):
+    import json
     import mlflow
     import os
     import shutil
@@ -154,38 +167,47 @@ def train_model(training_type, task, label_name, n_jobs, model_directory, X_trai
     from autosklearn.regression import AutoSklearnRegressor
     from autosklearn.metrics import f1, r2
     from sklearn.metrics import (
-        confusion_matrix,
         average_precision_score,
-        precision_score,
-        roc_auc_score,
-        r2_score,
+        confusion_matrix,
+        f1_score,
         mean_absolute_error,
         mean_absolute_percentage_error,
+        precision_score,
+        r2_score,
+        roc_auc_score,
     )
 
     from freeholdforecast.common.utils import copy_directory_to_storage
 
-    # task.logger = task._prepare_logger()  # reset logger
-
     is_classification = training_type == "classification"
+    time_left_for_this_task = 60 * task.fit_minutes
+    per_run_time_limit = 60 * task.per_job_fit_minutes
+    per_job_fit_memory_limit_mb = int(task.per_job_fit_memory_limit_gb * 1024)
+    algorithm = "gradient_boosting"
+    resampling_strategy = "cv"
+    resampling_strategy_arguments = {
+        "train_size": 0.67,
+        "shuffle": False,
+        "folds": 5,
+    }
+
     mlflow_run = task.mlflow_client.create_run(task.mlflow_experiment.experiment_id)
     mlflow_run_id = mlflow_run.info.run_id
 
     with mlflow.start_run(mlflow_run_id, task.mlflow_experiment.experiment_id):
         task.mlflow_client.log_param(mlflow_run_id, "training_type", training_type)
         task.mlflow_client.log_param(mlflow_run_id, "label_name", label_name)
+        task.mlflow_client.log_param(mlflow_run_id, "algorithm", algorithm)
+        task.mlflow_client.log_param(mlflow_run_id, "resampling_strategy", resampling_strategy)
+        task.mlflow_client.log_param(
+            mlflow_run_id, "resampling_strategy_arguments", json.dumps(resampling_strategy_arguments)
+        )
         task.mlflow_client.log_param(mlflow_run_id, "metric", "f1" if is_classification else "r2")
-        task.mlflow_client.log_param(mlflow_run_id, "train_years", task.train_years)
+        # task.mlflow_client.log_param(mlflow_run_id, "train_years", task.train_years)
         task.mlflow_client.log_param(mlflow_run_id, "fit_jobs", n_jobs)
         task.mlflow_client.log_param(mlflow_run_id, "fit_minutes", task.fit_minutes)
         task.mlflow_client.log_param(mlflow_run_id, "per_job_fit_minutes", task.per_job_fit_minutes)
         task.mlflow_client.log_param(mlflow_run_id, "per_job_memory_limit_gb", task.per_job_fit_memory_limit_gb)
-
-        # task.logger.info(f"Fitting model for {label_name}")
-        time_left_for_this_task = 60 * task.fit_minutes
-        per_run_time_limit = 60 * task.per_job_fit_minutes
-        per_job_fit_memory_limit_mb = int(task.per_job_fit_memory_limit_gb * 1024)
-        resampling_strategy = "cv"
 
         if is_classification:
             model = AutoSklearnClassifier(
@@ -194,14 +216,10 @@ def train_model(training_type, task, label_name, n_jobs, model_directory, X_trai
                 memory_limit=per_job_fit_memory_limit_mb,
                 n_jobs=n_jobs,
                 metric=f1,
-                include={"classifier": ["gradient_boosting"]},
+                include={"classifier": [algorithm]},
                 initial_configurations_via_metalearning=0,
                 resampling_strategy=resampling_strategy,
-                resampling_strategy_arguments={
-                    "train_size": 0.67,
-                    "shuffle": True,
-                    "folds": 3,
-                },
+                resampling_strategy_arguments=resampling_strategy_arguments,
             )
         else:
             model = AutoSklearnRegressor(
@@ -210,20 +228,13 @@ def train_model(training_type, task, label_name, n_jobs, model_directory, X_trai
                 memory_limit=per_job_fit_memory_limit_mb,
                 n_jobs=n_jobs,
                 metric=r2,
-                include={"regressor": ["gradient_boosting"]},
+                include={"regressor": [algorithm]},
                 initial_configurations_via_metalearning=0,
                 resampling_strategy=resampling_strategy,
-                resampling_strategy_arguments={
-                    "train_size": 0.67,
-                    "shuffle": True,
-                    "folds": 5,
-                },
+                resampling_strategy_arguments=resampling_strategy_arguments,
             )
 
         model.fit(X_train, y_train)
-
-        # task.logger = task._prepare_logger()  # reset logger
-        # task.logger.info(f"Saving model for {label_name}")
 
         if os.path.exists(model_directory):
             shutil.rmtree(model_directory)
@@ -232,18 +243,19 @@ def train_model(training_type, task, label_name, n_jobs, model_directory, X_trai
         mlflow.sklearn.log_model(model, model_directory)
         time.sleep(10)
         mlflow.sklearn.save_model(model, model_directory)
-
         copy_directory_to_storage("models", model_directory)
 
-        if len(X_test) > 0:
+        if not task.is_local and len(X_test) > 0:
             y_pred = model.predict(X_test)
 
             if is_classification:
+                f1_score_value = f1_score(y_test, y_pred)
                 tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
                 average_precision_value = average_precision_score(y_test, y_pred)
                 precision_value = precision_score(y_test, y_pred)
                 roc_auc_value = roc_auc_score(y_test, y_pred)
 
+                task.mlflow_client.log_metric(mlflow_run_id, "f1_score_value", f1_score_value)
                 task.mlflow_client.log_metric(mlflow_run_id, "confusion_tp", tp)
                 task.mlflow_client.log_metric(mlflow_run_id, "confusion_fp", fp)
                 task.mlflow_client.log_metric(mlflow_run_id, "precision", precision_value)
@@ -278,4 +290,18 @@ def get_parcel_months_since_year_built(year_built, current_date):
         np.nan
         if pd.isna(year_built) or int(year_built) < 1800
         else diff_month(datetime(int(year_built), 1, 1), current_date)
+    )
+
+
+def is_valid_sale(row):
+    import pandas as pd
+
+    return (
+        1
+        if (
+            # row["last_sale_price"] > (row["Building Value"] + row["Land Value"])
+            (pd.isna(row["same_owner"]) or row["same_owner"] == 0)
+            and (pd.isna(row["business_owner"]) or row["same_owner"] == 0)
+        )
+        else 0
     )
