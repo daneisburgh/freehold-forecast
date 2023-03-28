@@ -2,6 +2,8 @@ import numpy as np
 import os
 import pandas as pd
 
+from datetime import datetime
+from dateutil.relativedelta import relativedelta
 from functools import partial
 from multiprocessing import Pool
 
@@ -145,7 +147,8 @@ def get_df_state(task, landing_directory):
     df["last_sale_price"] = to_numeric(df["last_sale_price"])
     # df["Stories"] = df.Stories.apply(lambda x: np.nan if pd.isna(x) else int(np.ceil(x)))
 
-    min_sale_year = 1900
+    min_sale_year = datetime.now() - relativedelta(years=+100)
+    task.logger.info(f"Min sale year: {min_sale_year}")
 
     df = df.loc[
         (df["last_sale_price"].notna() & (df["last_sale_price"] > 1000))
