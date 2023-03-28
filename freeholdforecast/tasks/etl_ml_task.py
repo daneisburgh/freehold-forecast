@@ -71,7 +71,7 @@ class ETL_ML_Task(Task):
         first_weekday, month_days = monthrange(self.train_end_date.year, self.train_end_date.month)
         self.train_end_date = self.train_end_date.replace(day=month_days)
 
-        self.train_start_date = self.train_end_date - relativedelta(months=+6)
+        self.train_start_date = self.train_end_date - relativedelta(months=+12)
         self.train_start_date = self.train_start_date.replace(day=1)
 
         # self.train_years = 1
@@ -100,30 +100,42 @@ class ETL_ML_Task(Task):
         self.classification_proba_threshold = 0.5
         self.logger.info(f"Classification probability threshold: {self.classification_proba_threshold}")
 
-        # self.non_encoded_columns = ["last_sale_date", "last_sale_price", "next_sale_date", "next_sale_price"]
-        # self.non_encoded_columns = ["last_sale_date", "last_sale_price", "Year Built"]
-        # self.non_encoded_columns = ["last_sale_date", "last_sale_price"]
-
         self.numeric_columns = [
-            "House #",
-            "Livable Sqft",
-            "Stories",
-            "Year Built",
-            "Sale Price",
-            "Building Value",
-            "Land Value",
-            "same_owner",
+            "YearBuilt",
+            "PropertyAddressZIP",
+            "PropertyLatitude",
+            "PropertyLongitude",
+            "BathCount",
+            "BathPartialCount",
+            "BedroomsCount",
+            "AreaBuilding",
+            "AreaLotSF",
+            "StoriesCount",
+            "TaxMarketValueLand",
+            "TaxMarketValueImprovements",
+            "TaxMarketValueTotal",
+            "EstimatedValue",
+            "ConfidenceScore",
+            "AreaBuilding Rounded",
+            "AreaLotSF Rounded",
+            "TaxMarketValueLand Rounded",
+            "TaxMarketValueImprovements Rounded",
+            "TaxMarketValueTotal Rounded",
             "business_owner",
-            "valid_sale",
-            "next_same_owner",
             "next_business_owner",
+            "same_owner",
+            "next_same_owner",
+            "good_sale",
+            "next_good_sale",
             "last_sale_price",
             "next_sale_price",
-            "next_valid_sale",
-            "last_sale_year",
         ]
 
-        self.datetime_columns = ["last_sale_date", "next_sale_date"]
+        self.datetime_columns = [
+            "ValuationDate",
+            "last_sale_date",
+            "next_sale_date",
+        ]
 
         self.non_encoded_columns = self.numeric_columns + self.datetime_columns
 
@@ -146,6 +158,7 @@ class ETL_ML_Task(Task):
 
     def _get_df_raw(self):
         raw_directory = os.path.join("data", "etl", self.run_date, self.state, "1-raw")
+        landing_directory = os.path.join("data", "etl", self.run_date, self.state, "0-landing")
         make_directory(raw_directory)
 
         raw_path = os.path.join(raw_directory, "raw.gz")
@@ -155,11 +168,10 @@ class ETL_ML_Task(Task):
             self.df_raw = pd.read_parquet(raw_path)
         else:
             self.logger.info("Retrieving landing data")
-            landing_directory = os.path.join("data", "etl", self.run_date, self.state, "0-landing")
             make_directory(landing_directory)
 
-            self.df_raw = get_df_county(self, self.state, landing_directory)
-            # self.df_raw = get_df_state(self, landing_directory)
+            # self.df_raw = get_df_county(self, self.state, landing_directory)
+            self.df_raw = get_df_state(self, landing_directory)
 
             self.logger.info("Saving raw data")
             self.df_raw.to_parquet(raw_path, index=False)
@@ -171,17 +183,8 @@ class ETL_ML_Task(Task):
         for column in self.datetime_columns:
             self.df_raw[column] = pd.to_datetime(self.df_raw[column])
 
-        def drop_duplicate_sale_years(df_temp):
-            return df_temp.drop_duplicates(subset=["Parid", "last_sale_year"], keep="last", ignore_index=True)
-
-        self.df_raw = drop_duplicate_sale_years(self.df_raw)
-
         self.logger.info(f"Total parcels: {self.df_raw.Parid.nunique()}")
         self.logger.info(f"Total sales: {len(self.df_raw)}")
-
-        df_valid_sales = self.df_raw.loc[self.df_raw.valid_sale.isna() | (self.df_raw.valid_sale == 1)]
-        self.logger.info(f"Total valid or NA sale parcels: {df_valid_sales.Parid.nunique()}")
-        self.logger.info(f"Total valid or NA sales: {len(df_valid_sales)}")
 
         engine = sqlalchemy.create_engine(os.getenv("DB_STRING_LOCAL"))
         engine.connect()
@@ -209,16 +212,16 @@ class ETL_ML_Task(Task):
                 self.df_raw.last_sale_date.notna()
                 & self.df_raw.last_sale_price.notna()
                 & self.df_raw.Parid.isin([x.parcel for x in predictions_to_update])
-                & self.df_raw.County.isin(list(set([x.county for x in predictions_to_update])))
-                & self.df_raw.State.isin(list(set([x.state for x in predictions_to_update])))
+                & self.df_raw.SitusCounty.isin(list(set([x.county for x in predictions_to_update])))
+                & self.df_raw.SitusStateCode.isin(list(set([x.state for x in predictions_to_update])))
             ]
 
             for p in predictions_to_update:
                 df_existing_prediction = (
                     df_raw_update.loc[
                         (df_raw_update.Parid == p.parcel)
-                        & (df_raw_update.County == p.county)
-                        & (df_raw_update.State == p.state)
+                        & (df_raw_update.SitusCounty == p.county)
+                        & (df_raw_update.SitusStateCode == p.state)
                         & (df_raw_update.last_sale_date.dt.date >= p.predictionPeriodStart)
                     ]
                     .sort_values("last_sale_date", ignore_index=True)
@@ -235,7 +238,6 @@ class ETL_ML_Task(Task):
                             updatedAt=datetime.utcnow(),
                             actualSaleDate=new_values["last_sale_date"],
                             actualSalePrice=new_values["last_sale_price"],
-                            validSale=(None if new_values["valid_sale"] is None else new_values["valid_sale"]),
                         )
                     )
 
@@ -281,33 +283,23 @@ class ETL_ML_Task(Task):
         make_directory(prepared_directory)
 
         prepared_path = os.path.join(prepared_directory, "prepared.gz")
+        parcel_ids = list(self.df_raw_encoded.Parid.unique())
 
         if file_exists(prepared_path):
             self.logger.info("Loading existing prepared data")
             self.df_prepared = pd.read_parquet(prepared_path)
             self.df_prepared.date = pd.to_datetime(self.df_prepared.date)
-
-            # parcel_ids = list(self.df_raw_encoded.Parid.unique())
-            # parcel_ids = random.sample(parcel_ids, int(len(parcel_ids) * 0.5))
-            # self.df_raw_encoded = self.df_raw_encoded.loc[self.df_raw_encoded.Parid.isin(parcel_ids)]
-            # self.df_prepared = self.df_prepared.loc[self.df_prepared.Parid.isin(parcel_ids)]
         else:
             self.logger.info("Preparing data")
-
-            parcel_ids = list(self.df_raw_encoded.Parid.unique())
-
-            if self.is_local:
-                parcel_ids = random.sample(parcel_ids, int(len(parcel_ids) * 0.5))
-                self.df_raw_encoded = self.df_raw_encoded.loc[self.df_raw_encoded.Parid.isin(parcel_ids)]
+            # parcel_ids = random.sample(parcel_ids, int(len(parcel_ids) * 0.5))
 
             self.df_prepared = pd.concat(
                 Pool(self.cpu_count).map(
                     partial(
                         get_parcel_prepared_data,
-                        df_raw_encoded=self.df_raw_encoded,
-                        train_start_date=self.train_start_date.replace(year=self.train_start_date.year - 4),
+                        df_raw_encoded=self.df_raw_encoded.loc[self.df_raw_encoded.Parid.isin(parcel_ids)].copy(),
+                        train_start_date=self.train_start_date.replace(year=self.train_start_date.year - 1),
                         min_months_since_last_sale=self.min_months_since_last_sale,
-                        # max_months_since_last_sale=self.max_months_since_last_sale,
                     ),
                     np.array_split(parcel_ids, self.cpu_count),
                 ),
@@ -325,43 +317,47 @@ class ETL_ML_Task(Task):
         self.parcel_ids = list(self.df_prepared.Parid.unique())
 
         self.logger.info("Splitting data")
-        identifier_columns = [
-            "Parid",
-            # "Book",
-            # "Plat",
-            # "Parcel",
-            # "ParcelID",
-            # "PropertyNumber",
-            # "PriorOwner",
-            "Owner Name 1",
-            "Last Owner Name 1",
-            # "Owner Name 2",
-            "House #",
-            "Street Name",
-            "Street Suffix",
-            "Month of Sale",
-            "Day of Sale",
-            "Year of Sale",
-            "Year Built",
-            "Livable Sqft",
-            "Sale Price",
-            "Building Value",
-            "Land Value",
-        ]
 
         non_train_columns = [
-            "date",
-            "next_sale_date",
+            "Parid",
+            # "YearBuilt",
+            "PropertyAddressFull",
+            # "PropertyAddressZIP",
+            # "SitusCounty",
+            # "SitusStateCode",
+            "PropertyLatitude",
+            "PropertyLongitude",
+            "PartyOwner1NameFull",
+            # "CompanyFlag",
+            "OwnerTypeDescription1",
+            # "PropertyUseGroup",
+            # "BathCount",
+            # "BathPartialCount",
+            # "BedroomsCoun" "AreaBuilding",
+            "AreaLotSF",
+            # "StoriesCount",
+            "TaxMarketValueLand",
+            "TaxMarketValueImprovements",
+            "TaxMarketValueTotal",
+            "ValuationDate",
+            "EstimatedValue",
+            "ConfidenceScore",
+            # "AreaBuilding Rounded",
+            # "AreaLotSF Rounded",
+            # "TaxMarketValueLand Rounded",
+            # "TaxMarketValueImprovements Rounded",
+            # "TaxMarketValueTotal Rounded",
+            # "business_owner",
+            "next_business_owner",
+            # "same_owner",
+            "next_same_owner",
+            # "good_sale",
+            "next_good_sale",
             "last_sale_date",
             "last_sale_price",
-            # "valid_sale",
-            "next_same_owner",
-            "next_business_owner",
-            "next_valid_sale",
-            "last_sale_year",
+            "next_sale_date",
+            "date",
         ]
-
-        prepared_drop_columns = non_train_columns + identifier_columns
 
         self.df_test = self.df_prepared.loc[
             (self.df_prepared.date >= self.test_date)
@@ -369,40 +365,33 @@ class ETL_ML_Task(Task):
             & (self.df_prepared.months_since_last_sale >= self.min_months_since_last_sale)
         ]
 
-        # test_pos_parcels = self.df_test.loc[self.df_test[self.classification_label_names[0]] == 1].Parid.unique()
-
-        # df_test_train = self.df_test.copy()
-        # df_test_train[self.classification_label_names[0]] = 0
-
         df_train = self.df_prepared.loc[
             (self.df_prepared.date >= self.train_start_date)
             & (self.df_prepared.date <= self.train_end_date)
             & (self.df_prepared.months_since_last_sale >= self.min_months_since_last_sale)
+            & ((self.df_prepared.next_good_sale.isna()) | (self.df_prepared.next_good_sale == 1))
         ]
 
-        df_train_in_test = df_train.loc[df_train.Parid.isin(self.df_test)]
+        df_train_in_test = df_train.loc[df_train.Parid.isin(self.df_test.Parid)]
+        df_train_not_in_test = df_train.loc[~df_train.Parid.isin(self.df_test.Parid)]
         df_train_in_test[self.classification_label_names[0]] = 0
         df_train_in_test["next_sale_price"] = np.nan
-        df_train_not_in_test = df_train.loc[~df_train.Parid.isin(self.df_test)]
 
         self.df_train_classification = pd.concat(
             [df_train_in_test, df_train_not_in_test], ignore_index=True
         ).sort_values(by="date", ignore_index=True)
 
         self.df_train_regression = self.df_train_classification.loc[
-            (self.df_train_classification.next_sale_price.notna())
+            (self.df_train_classification.sale_in_12_months == 1)
+            & (self.df_train_classification.next_sale_price.notna())
             & (self.df_train_classification.next_sale_price > 0)
-            & (
-                self.df_train_classification.next_valid_sale.isna()
-                | (self.df_train_classification.next_valid_sale == 1)
-            )
         ]
 
-        self.df_test = self.df_test.drop(columns=prepared_drop_columns).drop_duplicates(ignore_index=True)
-        self.df_train_classification = self.df_train_classification.drop(columns=prepared_drop_columns).drop_duplicates(
+        self.df_test = self.df_test.drop(columns=non_train_columns).drop_duplicates(ignore_index=True)
+        self.df_train_classification = self.df_train_classification.drop(columns=non_train_columns).drop_duplicates(
             ignore_index=True
         )
-        self.df_train_regression = self.df_train_regression.drop(columns=prepared_drop_columns).drop_duplicates(
+        self.df_train_regression = self.df_train_regression.drop(columns=non_train_columns).drop_duplicates(
             ignore_index=True
         )
 
@@ -420,7 +409,7 @@ class ETL_ML_Task(Task):
 
         if self.is_local:
             # max_jobs = self.cpu_count - 3
-            self.fit_minutes = 45
+            self.fit_minutes = 30
             self.per_job_fit_minutes = 15  # BEST RUN 15
             self.per_job_fit_memory_limit_gb = 4
 
@@ -600,19 +589,6 @@ class ETL_ML_Task(Task):
     def _get_df_predictions(self):
         self.logger.info("Creating current data frame")
 
-        # self.df_current = self.df_prepared.loc[
-        #     (self.df_prepared.date >= self.test_date)
-        #     & (self.df_prepared.date <= self.test_date)
-        #     & (self.df_prepared["Building Value"].notna())
-        #     & (self.df_prepared["Land Value"].notna())
-        #     & (self.df_prepared["Year Built"].notna())
-        # ].drop(columns=["date"])
-
-        # if "sale_in_3_months" in list(self.df_current.columns):
-        #     df_current_pos_labels = self.df_current.loc[self.df_current.sale_in_3_months == 1]
-        #     self.df_current = self.df_current if len(df_current_pos_labels) > 0 else df_current_pos_labels
-
-        # if len(self.df_current) == 0 or True:
         self.df_current = (
             self.df_raw_encoded.loc[(self.df_raw_encoded.last_sale_date < (self.test_date + relativedelta(months=+1)))]
             .sort_values(by=["Parid", "last_sale_date"], ascending=True)
@@ -625,19 +601,11 @@ class ETL_ML_Task(Task):
         )
         self.df_current["months_since_year_built"] = Pool(self.cpu_count).map(
             partial(get_parcel_months_since_year_built, current_date=self.test_date),
-            self.df_current["Year Built"],
+            self.df_current["YearBuilt"],
         )
-
-        self.df_current["Livable Sqft Rounded"] = self.df_current["Livable Sqft"].apply(lambda x: round_base(x, 250))
-        self.df_current["Sale Price Rounded"] = self.df_current["Sale Price"].apply(lambda x: round_base(x, 50000))
-        self.df_current["Building Value Rounded"] = self.df_current["Building Value"].apply(
-            lambda x: round_base(x, 25000)
-        )
-        self.df_current["Land Value Rounded"] = self.df_current["Land Value"].apply(lambda x: round_base(x, 25000))
 
         self.df_current = self.df_current.loc[
             (self.df_current.months_since_last_sale >= self.min_months_since_last_sale)
-            # & (self.df_current.months_since_last_sale <= self.max_months_since_last_sale)
         ]
 
         self.logger.info(f"Total properties in current data frame: {len(self.df_current)}")
@@ -670,7 +638,7 @@ class ETL_ML_Task(Task):
             self.df_current[pred_label_name] = model.predict(X_current).round(decimals=-4)
 
             mape_value = 0.125
-            self.logger.info(f"MAPE for {label_name}: {mape_value:.2f}")
+            self.logger.info(f"MAPE for {label_name}: {mape_value:.3f}")
 
             y_pred_current_interval = self.df_current[pred_label_name] * mape_value
 
@@ -701,17 +669,7 @@ class ETL_ML_Task(Task):
             .astype(str)
         )
 
-        for column in [
-            "Year Built",
-            "Stories",
-            "Livable Sqft",
-            "Building Value",
-            "Land Value",
-            "next_sale_price",
-            "pred_next_sale_price",
-            "valid_sale",
-            "next_valid_sale",
-        ]:
+        for column in self.numeric_columns + ["pred_next_sale_price"]:
             self.df_predictions[column] = self.df_predictions[column].apply(
                 lambda value: None if pd.isna(value) or pd.isnull(value) else to_numeric(value)
             )
@@ -721,181 +679,86 @@ class ETL_ML_Task(Task):
                 lambda value: None if pd.isna(value) or str(value).lower() in ["nan", "nat", "none"] else value
             )
 
-        self.df_predictions["Prediction Period Start"] = self.prediction_period_start_date
-        self.df_predictions["Prediction Period End"] = self.prediction_period_end_date
+        self.df_predictions["prediction_period_start"] = self.prediction_period_start_date
+        self.df_predictions["prediction_period_end"] = self.prediction_period_end_date
+        self.df_predictions["updated_at"] = datetime.utcnow()
 
-        for column in ["Prediction Period Start", "Prediction Period End", "next_sale_date"]:
+        for column in ["prediction_period_start", "prediction_period_end"] + self.datetime_columns:
             self.df_predictions[column] = self.df_predictions[column].apply(
                 lambda value: None if pd.isna(value) else pd.to_datetime(value).date()
             )
 
         self.df_predictions = self.df_predictions.loc[
-            (self.df_predictions.pred_next_sale_price > 0)
+            (self.df_predictions.PropertyAddressFull.notna())
+            & (self.df_predictions.PropertyLatitude.notna())
+            & (self.df_predictions.PropertyLongitude.notna())
+            & (self.df_predictions.pred_next_sale_price > 0)
             & (self.df_predictions.pred_next_sale_price >= self.df_predictions.pred_next_sale_price.quantile(0.05))
             & (self.df_predictions.pred_next_sale_price <= self.df_predictions.pred_next_sale_price.quantile(0.95))
-            & (
-                (self.df_predictions["Building Value"].isna() & self.df_predictions["Land Value"].isna())
-                | (
-                    self.df_predictions["Building Value"].notna() & self.df_predictions.pred_next_sale_price
-                    < (10 * self.df_predictions["Building Value"])
-                )
-                | (
-                    self.df_predictions["Land Value"].notna() & self.df_predictions.pred_next_sale_price
-                    < (10 * self.df_predictions["Land Value"])
-                )
-                | (
-                    (
-                        self.df_predictions.pred_next_sale_price
-                        > (self.df_predictions["Building Value"] + self.df_predictions["Land Value"])
-                    )
-                    & (
-                        self.df_predictions.pred_next_sale_price
-                        < (2 * (self.df_predictions["Building Value"] + self.df_predictions["Land Value"]))
-                    )
-                )
-            )
-            & (
-                (self.df_predictions["Livable Sqft"].isna())
-                | (self.df_predictions["Livable Sqft"] == 0)
-                | ((self.df_predictions.pred_next_sale_price / self.df_predictions["Livable Sqft"]) < 400)
-            )
+            & (self.df_predictions.pred_next_sale_price > self.df_predictions.TaxMarketValueTotal)
+            & (self.df_predictions.pred_next_sale_price < (1.5 * self.df_predictions.TaxMarketValueTotal))
+            & (400 > (self.df_predictions.pred_next_sale_price / self.df_predictions.AreaBuilding))
         ]
-
-        def get_latest_address(parcel_id):
-            raw_row = (
-                self.df_raw.loc[self.df_raw.Parid == parcel_id]
-                .sort_values(by="last_sale_date", ascending=False, ignore_index=True)
-                .iloc[0]
-            )
-            house_number = (
-                "" if np.isnan(to_numeric(raw_row["House #"])) else str(int(pd.to_numeric(raw_row["House #"])))
-            )
-            street_name = raw_row["Street Name"].title().replace("Nan", "")
-            street_suffix = raw_row["Street Suffix"].title().replace("Nan", "")
-            return f"{house_number} {street_name} {street_suffix}".strip()
-
-        self.df_predictions["Address"] = self.df_predictions.Parid.apply(get_latest_address)
-        self.df_predictions["Latitude"] = None
-        self.df_predictions["Longitude"] = None
-
-        self.logger.info(f"Retrieving address coordinates for {len(self.df_predictions)} properties")
-        gmaps = googlemaps.Client(key=os.getenv("GOOGLE_MAPS_API_KEY"))
-
-        def get_address_coordinates(row):
-            address = row["Address"]
-            county = row["County"] + " County"
-            geocode_results = gmaps.geocode(f"{address}, {county}, OH")
-
-            for result in geocode_results:
-                good_street_number = False
-                good_county = False
-
-                for component in result["address_components"]:
-                    if component["types"][0] == "street_number" and component["long_name"] in address:
-                        good_street_number = True
-                    elif component["types"][0] == "administrative_area_level_2" and component["long_name"] == county:
-                        good_county = True
-
-                if good_street_number and good_county:
-                    return result["geometry"]["location"]
-
-            return None
-
-        # for index, row in self.df_predictions.iterrows():
-        #     coordinates = get_address_coordinates(row)
-
-        #     if coordinates:
-        #         self.df_predictions.at[index, "Latitude"] = coordinates["lat"]
-        #         self.df_predictions.at[index, "Longitude"] = coordinates["lng"]
-
-        # self.df_predictions = self.df_predictions.loc[
-        #     self.df_predictions.Latitude.notna() & self.df_predictions.Longitude.notna()
-        # ]
 
         self.logger.info(f"Total predictions: {len(self.df_predictions)}")
 
-        # if "sale_in_3_months" in list(self.df_predictions.columns):
-        #     acc_pred_sale_in_3_months = self.df_predictions.sale_in_3_months.sum() / len(self.df_predictions)
-        #     self.df_predictions["pred_next_sale_price_error"] = np.abs(
-        #         (self.df_predictions.next_sale_price - self.df_predictions.pred_next_sale_price)
-        #         / self.df_predictions.pred_next_sale_price
-        #     )
-        #     self.df_predictions["pred_next_sale_price_in_bound"] = (
-        #         self.df_predictions.next_sale_price >= self.df_predictions.pred_next_sale_price_lower
-        #     ) & (self.df_predictions.next_sale_price <= self.df_predictions.pred_next_sale_price_upper)
-
-        #     acc_pred_next_sale_price = 1 - np.mean(self.df_predictions.pred_next_sale_price_error)
-        #     acc_pred_next_sale_price_bound = len(
-        #         self.df_predictions[self.df_predictions.pred_next_sale_price_in_bound == True]
-        #     ) / len(self.df_predictions)
-
-        #     self.logger.info(f"Final accuracy for sale_in_3_months: {acc_pred_sale_in_3_months:.3f}")
-        #     self.logger.info(f"Final accuracy for next_sale_price: {acc_pred_next_sale_price:.3f}")
-        #     self.logger.info(f"Final accuracy for next_sale_price_lower/upper: {acc_pred_next_sale_price_bound:.3f}")
-
-        #     df_predictions_ignore_sales = self.df_predictions.loc[
-        #         (self.df_predictions.next_valid_sale.isna()) | (self.df_predictions.next_valid_sale == 1)
-        #     ]
-
-        #     self.logger.info(f"Total predictions with ignored sales: {len(df_predictions_ignore_sales)}")
-
-        #     acc_pred_sale_in_3_months = df_predictions_ignore_sales.sale_in_3_months.sum() / len(
-        #         df_predictions_ignore_sales
-        #     )
-        #     acc_pred_next_sale_price = 1 - np.mean(df_predictions_ignore_sales.pred_next_sale_price_error)
-        #     acc_pred_next_sale_price_bound = len(
-        #         df_predictions_ignore_sales[df_predictions_ignore_sales.pred_next_sale_price_in_bound == True]
-        #     ) / len(df_predictions_ignore_sales)
-
-        #     self.logger.info(f"Final accuracy for sale_in_3_months with ignored sales: {acc_pred_sale_in_3_months:.3f}")
-        #     self.logger.info(f"Final accuracy for next_sale_price with ignored sales: {acc_pred_next_sale_price:.3f}")
-        #     self.logger.info(
-        #         f"Final accuracy for next_sale_price_lower/upper with ignored sales: {acc_pred_next_sale_price_bound:.3f}"
-        #     )
-
-        self.df_predictions["updatedAt"] = datetime.utcnow()
         self.df_predictions = self.df_predictions[
             [
-                "Prediction Period Start",
-                "Prediction Period End",
                 "Parid",
-                "Address",
-                "County",
-                "State",
-                "Latitude",
-                "Longitude",
-                "Year Built",
-                "Stories",
-                "Livable Sqft",
-                "Building Value",
-                "Land Value",
+                "YearBuilt",
+                "PropertyAddressFull",
+                "PropertyAddressZIP",
+                "SitusCounty",
+                "SitusStateCode",
+                "PropertyLatitude",
+                "PropertyLongitude",
+                "PropertyUseGroup",
+                "AreaBuilding",
+                "AreaLotSF",
+                "StoriesCount",
+                "TaxMarketValueLand",
+                "TaxMarketValueImprovements",
+                "TaxMarketValueTotal",
+                "ValuationDate",
+                "EstimatedValue",
+                "ConfidenceScore",
                 "last_sale_date",
-                "pred_next_sale_price",
-                "next_sale_price",
+                "last_sale_price",
                 "next_sale_date",
-                "next_valid_sale",
-                "updatedAt",
+                "next_sale_price",
+                "pred_next_sale_price",
+                "prediction_period_start",
+                "prediction_period_end",
+                "updated_at",
             ]
         ].rename(
             columns={
-                "Prediction Period Start": "predictionPeriodStart",
-                "Prediction Period End": "predictionPeriodEnd",
                 "Parid": "parcel",
-                "Address": "address",
-                "County": "county",
-                "State": "state",
-                "Latitude": "latitude",
-                "Longitude": "longitude",
-                "Year Built": "yearBuilt",
-                "Stories": "stories",
-                "Livable Sqft": "livableSqft",
-                "Building Value": "buildingValue",
-                "Land Value": "landValue",
+                "YearBuilt": "yearBuilt",
+                "PropertyAddressFull": "address",
+                "PropertyAddressZIP": "zipCode",
+                "SitusCounty": "county",
+                "SitusStateCode": "state",
+                "PropertyLatitude": "latitude",
+                "PropertyLongitude": "longitude",
+                "PropertyUseGroup": "propertyUse",
+                "AreaBuilding": "areaBuildingSqft",
+                "AreaLotSF": "areaLotSqft",
+                "StoriesCount": "stories",
+                "TaxMarketValueLand": "taxMarketValueLand",
+                "TaxMarketValueImprovements": "taxMarketValueImprovements",
+                "TaxMarketValueTotal": "taxMarketValueTotal",
+                "EstimatedValue": "estimatedValue",
+                "ValuationDate": "estimatedValueDate",
+                "ConfidenceScore": "estimatedValueConfidenceScore",
                 "last_sale_date": "lastSaleDate",
-                "pred_next_sale_price": "predictedSalePrice",
-                "next_sale_price": "actualSalePrice",
+                "last_sale_price": "lastSalePrice",
                 "next_sale_date": "actualSaleDate",
-                "next_valid_sale": "validSale",
+                "next_sale_price": "actualSalePrice",
+                "pred_next_sale_price": "predictedSalePrice",
+                "prediction_period_start": "predictionPeriodStart",
+                "prediction_period_end": "predictionPeriodEnd",
+                "updated_at": "updatedAt",
             },
         )
 

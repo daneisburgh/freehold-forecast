@@ -1,47 +1,3 @@
-# def get_df_attom_recorder_additional_data(row, assessor_columns, recorder_columns):
-#     import numpy as np
-#     import pandas as pd
-
-#     from datetime import datetime, timedelta
-
-#     from freeholdforecast.common.utils import date_string
-
-#     recorder_additional_object = {}
-
-#     ignore_assessor_columns = [
-#         "TaxYearAssessed",
-#         "TaxAssessedValueTotal",
-#         "TaxAssessedValueImprovements",
-#         "TaxAssessedValueLand",
-#         "PreviousAssessedValue",
-#         "TaxMarketValueYear",
-#         "TaxMarketValueTotal",
-#         "TaxMarketValueImprovements",
-#         "TaxMarketValueLand",
-#         "TaxExemptionHomeownerFlag",
-#     ]
-
-#     for column in assessor_columns:
-#         recorder_additional_object[column] = (
-#             np.nan if column in recorder_columns or column in ignore_assessor_columns else row[column]
-#         )
-
-#     recorder_additional_object["InstrumentDate"] = np.nan
-#     recorder_additional_object["TransferAmount"] = np.nan
-
-#     # min_year_built = datetime.now().year - max_year_diff
-
-#     if pd.notna(row["YearBuilt"]):
-#         year_built = int(row["YearBuilt"])
-
-#         # if year_built < min_year_built:
-#         #     year_built = min_year_built
-
-#         recorder_additional_object["InstrumentDate"] = date_string(datetime(year_built, 1, 1))
-
-#     return recorder_additional_object
-
-
 def get_df_additional_data(row, all_columns, ignore_columns):
     import numpy as np
     import pandas as pd
@@ -55,9 +11,7 @@ def get_df_additional_data(row, all_columns, ignore_columns):
     for column in all_columns:
         additional_object[column] = np.nan if column in ignore_columns else row[column]
 
-    year_built = int(row["Year Built"])
-
-    additional_object["last_sale_date"] = date_string(datetime(year_built, 1, 1))
+    additional_object["last_sale_date"] = date_string(datetime(int(row["YearBuilt"]), 1, 1))
 
     return additional_object
 
@@ -128,7 +82,6 @@ def get_parcel_prepared_data(
                             "sale_in_12_months": has_next_sale(12, has_next_sale_date),
                             "next_sale_price": to_numeric(row.next_sale_price),
                             "next_sale_date": row.next_sale_date,
-                            "next_valid_sale": row.next_valid_sale,
                             "date": date.replace(day=1),
                             # "month": date.month,
                             # "months_since_last_sale": months_since_last_sale,
@@ -139,11 +92,6 @@ def get_parcel_prepared_data(
 
                         for column in list(df_raw_encoded.columns):
                             prepared_data_object[column] = row[column]
-
-                        prepared_data_object["Livable Sqft Rounded"] = round_base(row["Livable Sqft"], 250)
-                        prepared_data_object["Sale Price Rounded"] = round_base(row["Sale Price"], 50000)
-                        prepared_data_object["Building Value Rounded"] = round_base(row["Building Value"], 25000)
-                        prepared_data_object["Land Value Rounded"] = round_base(row["Land Value"], 25000)
 
                         prepared_data.append(prepared_data_object)
 
@@ -290,18 +238,4 @@ def get_parcel_months_since_year_built(year_built, current_date):
         np.nan
         if pd.isna(year_built) or int(year_built) < 1800
         else diff_month(datetime(int(year_built), 1, 1), current_date)
-    )
-
-
-def is_valid_sale(row):
-    import pandas as pd
-
-    return (
-        1
-        if (
-            # row["last_sale_price"] > (row["Building Value"] + row["Land Value"])
-            (pd.isna(row["same_owner"]) or row["same_owner"] == 0)
-            and (pd.isna(row["business_owner"]) or row["same_owner"] == 0)
-        )
-        else 0
     )
