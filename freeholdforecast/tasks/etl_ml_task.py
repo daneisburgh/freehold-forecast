@@ -158,8 +158,8 @@ class ETL_ML_Task(Task):
             landing_directory = os.path.join("data", "etl", self.run_date, self.state, "0-landing")
             make_directory(landing_directory)
 
-            self.df_raw = get_df_county(self, self.state, landing_directory)
-            # self.df_raw = get_df_state(self, landing_directory)
+            # self.df_raw = get_df_county(self, self.state, landing_directory)
+            self.df_raw = get_df_state(self, landing_directory)
 
             self.logger.info("Saving raw data")
             self.df_raw.to_parquet(raw_path, index=False)
@@ -420,7 +420,7 @@ class ETL_ML_Task(Task):
 
         if self.is_local:
             # max_jobs = self.cpu_count - 3
-            self.fit_minutes = 45
+            self.fit_minutes = 30
             self.per_job_fit_minutes = 15  # BEST RUN 15
             self.per_job_fit_memory_limit_gb = 4
 
