@@ -23,6 +23,7 @@ PACKAGE_REQUIREMENTS = [
     "pyyaml",
     "scikit-learn",
     "sqlalchemy",
+    "xlsxwriter",
 ]
 
 DEV_REQUIREMENTS = [
