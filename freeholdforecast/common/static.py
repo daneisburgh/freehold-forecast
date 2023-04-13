@@ -1,17 +1,23 @@
-def get_df_additional_data(row, all_columns, ignore_columns):
+def get_df_additional_data(row, all_columns, ignore_columns, previous_column, min_sale_price):
     import numpy as np
     import pandas as pd
 
     from datetime import datetime, timedelta
 
-    from freeholdforecast.common.utils import date_string
+    from freeholdforecast.common.utils import date_string, to_numeric
 
     additional_object = {}
 
     for column in all_columns:
         additional_object[column] = np.nan if column in ignore_columns else row[column]
 
-    additional_object["last_sale_date"] = date_string(datetime(int(row["YearBuilt"]), 1, 1))
+    if previous_column == "AssessorLastSaleDate" and pd.notna(row["AssessorLastSaleDate"]):
+        additional_object["last_sale_date"] = row["AssessorLastSaleDate"]
+        additional_object["last_sale_price"] = (
+            row["AssessorLastSaleAmount"] if to_numeric(row["AssessorLastSaleAmount"]) > min_sale_price else np.nan
+        )
+    elif previous_column == "YearBuilt":
+        additional_object["last_sale_date"] = date_string(datetime(int(row["YearBuilt"]), 1, 1))
 
     return additional_object
 
@@ -52,8 +58,8 @@ def get_parcel_prepared_data(
     prepared_data = []
 
     for parcel_id in parcel_ids:
-        months_since_last_sale = 0
-        months_since_year_built = 0
+        # months_since_year_built = 0
+        total_sales = 0
 
         df_parcel_sales = df_raw_encoded.loc[df_raw_encoded.Parid == parcel_id].sort_values(
             by="last_sale_date", ascending=True, ignore_index=True
@@ -63,6 +69,8 @@ def get_parcel_prepared_data(
         # df_parcel_sales["next_sale_price"] = df_parcel_sales.last_sale_price.shift(-1)
 
         for row_index, row in df_parcel_sales.iterrows():
+            months_since_last_sale = 0
+            total_sales += 1
             has_next_sale_date = pd.notna(row.next_sale_date)
 
             months = get_months(row.last_sale_date, row.next_sale_date)
@@ -70,7 +78,8 @@ def get_parcel_prepared_data(
 
             for date_index, date in enumerate(months):
                 if (total_months - 1) > date_index:
-                    if date >= train_start_date and months_since_last_sale >= min_months_since_last_sale:
+                    # if date >= train_start_date and months_since_last_sale >= min_months_since_last_sale:
+                    if date >= train_start_date and months_since_last_sale >= (min_months_since_last_sale * 12):
 
                         def has_next_sale(date_diff, has_next_sale_date):
                             return 1 if date_index >= (total_months - date_diff - 1) and has_next_sale_date else 0
@@ -82,12 +91,13 @@ def get_parcel_prepared_data(
                             "sale_in_12_months": has_next_sale(12, has_next_sale_date),
                             "next_sale_price": to_numeric(row.next_sale_price),
                             "next_sale_date": row.next_sale_date,
+                            "total_sales": total_sales,
                             "date": date.replace(day=1),
-                            # "month": date.month,
+                            "month": date.month,
                             # "months_since_last_sale": months_since_last_sale,
                             # "months_since_year_built": months_since_year_built,
                             "months_since_last_sale": math.floor(months_since_last_sale / 12),
-                            "months_since_year_built": math.floor(months_since_year_built / 12),
+                            # "months_since_year_built": math.floor(months_since_year_built / 12),
                         }
 
                         for column in list(df_raw_encoded.columns):
@@ -96,10 +106,10 @@ def get_parcel_prepared_data(
                         prepared_data.append(prepared_data_object)
 
                     months_since_last_sale += 1
-                    months_since_year_built += 1
+                    # months_since_year_built += 1
 
-                    if date_index == total_months - 2:
-                        months_since_last_sale = 0
+                    # if date_index == total_months - 2:
+                    #     months_since_last_sale = 0
 
     return pd.DataFrame(prepared_data)
 
@@ -124,6 +134,7 @@ def train_model(training_type, task, label_name, n_jobs, model_directory, X_trai
         r2_score,
         roc_auc_score,
     )
+    from sklearn.svm import OneClassSVM
 
     from freeholdforecast.common.utils import copy_directory_to_storage
 
@@ -134,7 +145,7 @@ def train_model(training_type, task, label_name, n_jobs, model_directory, X_trai
     algorithm = "gradient_boosting"
     resampling_strategy = "cv"
     resampling_strategy_arguments = {
-        "train_size": 0.67,
+        "train_size": 0.5,
         "shuffle": False,
         "folds": 5,
     }
@@ -164,8 +175,8 @@ def train_model(training_type, task, label_name, n_jobs, model_directory, X_trai
                 memory_limit=per_job_fit_memory_limit_mb,
                 n_jobs=n_jobs,
                 metric=f1,
-                include={"classifier": [algorithm]},
                 initial_configurations_via_metalearning=0,
+                include={"classifier": [algorithm]},
                 resampling_strategy=resampling_strategy,
                 resampling_strategy_arguments=resampling_strategy_arguments,
             )
@@ -176,8 +187,8 @@ def train_model(training_type, task, label_name, n_jobs, model_directory, X_trai
                 memory_limit=per_job_fit_memory_limit_mb,
                 n_jobs=n_jobs,
                 metric=r2,
-                include={"regressor": [algorithm]},
                 initial_configurations_via_metalearning=0,
+                include={"regressor": [algorithm]},
                 resampling_strategy=resampling_strategy,
                 resampling_strategy_arguments=resampling_strategy_arguments,
             )
