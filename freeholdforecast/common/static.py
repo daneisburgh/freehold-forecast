@@ -85,6 +85,9 @@ def get_parcel_prepared_data(
                             return 1 if date_index >= (total_months - date_diff - 1) and has_next_sale_date else 0
                             # return 1 if date_index == (total_months - date_diff - 1) and has_next_sale_date else 0
 
+                        months_since_last_sale_floor = math.floor(months_since_last_sale / 12)
+                        max_months_since_last_sale_floor = 25
+
                         prepared_data_object = {
                             "sale_in_3_months": has_next_sale(3, has_next_sale_date),
                             "sale_in_6_months": has_next_sale(6, has_next_sale_date),
@@ -94,9 +97,15 @@ def get_parcel_prepared_data(
                             "total_sales": total_sales,
                             "date": date.replace(day=1),
                             "month": date.month,
-                            # "months_since_last_sale": months_since_last_sale,
+                            "months_since_last_sale": months_since_last_sale,
                             # "months_since_year_built": months_since_year_built,
-                            "months_since_last_sale": math.floor(months_since_last_sale / 12),
+                            "months_since_last_sale_max": (
+                                months_since_last_sale_floor
+                                if months_since_last_sale_floor < max_months_since_last_sale_floor
+                                else max_months_since_last_sale_floor
+                            ),
+                            "months_since_last_sale": months_since_last_sale_floor,
+                            # "months_since_last_sale": math.floor(months_since_last_sale / 12),
                             # "months_since_year_built": math.floor(months_since_year_built / 12),
                         }
 
@@ -123,7 +132,7 @@ def train_model(training_type, task, label_name, n_jobs, model_directory, X_trai
 
     from autosklearn.classification import AutoSklearnClassifier
     from autosklearn.regression import AutoSklearnRegressor
-    from autosklearn.metrics import f1, r2
+    from autosklearn.metrics import f1, precision, r2
     from sklearn.metrics import (
         average_precision_score,
         confusion_matrix,
@@ -145,9 +154,9 @@ def train_model(training_type, task, label_name, n_jobs, model_directory, X_trai
     algorithm = "gradient_boosting"
     resampling_strategy = "cv"
     resampling_strategy_arguments = {
-        "train_size": 0.5,
+        "train_size": 0.67,
         "shuffle": False,
-        "folds": 5,
+        "folds": 15,
     }
 
     mlflow_run = task.mlflow_client.create_run(task.mlflow_experiment.experiment_id)
@@ -236,6 +245,12 @@ def get_parcel_months_since_last_sale(last_sale_date, current_date):
     from freeholdforecast.common.utils import diff_month
 
     return diff_month(last_sale_date, current_date)
+
+
+def get_parcel_months_since_last_sale_max(last_sale_date, current_date):
+    months_since_last_sale_max = 25
+    months_since_last_sale = get_parcel_months_since_last_sale(last_sale_date, current_date)
+    return months_since_last_sale if months_since_last_sale < months_since_last_sale_max else months_since_last_sale_max
 
 
 def get_parcel_months_since_year_built(year_built, current_date):
