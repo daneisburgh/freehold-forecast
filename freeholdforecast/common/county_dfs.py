@@ -40,7 +40,7 @@ def get_df_state(task, landing_directory):
     df_counties = []
 
     for county in state_counties[task.state]:
-        task.logger.info(f"Getting data for {county}")
+        task.logger.info(f"Loading data for {county}")
         county_landing_directory = os.path.join(landing_directory, county)
         make_directory(county_landing_directory)
 
@@ -55,9 +55,9 @@ def get_df_state(task, landing_directory):
 
     min_sale_price = 0
     df["last_sale_price"] = to_numeric(df.last_sale_price)
-    df = df.loc[(df.last_sale_price.notna()) & (df.last_sale_price > min_sale_price)]
+    # df = df.loc[(df.last_sale_price.notna()) & (df.last_sale_price > min_sale_price)]
 
-    task.logger.info("Adding ATTOM data")
+    task.logger.info("Loading ATTOM data")
 
     def get_df_attom(data_path_value, date_column):
         dfs = []
@@ -121,9 +121,28 @@ def get_df_state(task, landing_directory):
     ]
 
     df_assessor_avm = pd.merge(df_assessor[assessor_columns], df_avm[avm_columns], on="[ATTOM ID]", how="left")
+    df_assessor_avm["AssessorLastSaleAmount"] = df_assessor_avm.AssessorLastSaleAmount.apply(
+        lambda x: x if x > 0 else np.nan
+    )
+    df_assessor_avm["AssessorLastSaleDate"] = pd.to_datetime(df_assessor_avm.AssessorLastSaleDate, errors="coerce")
+    df_assessor_avm["YearBuilt"] = pd.to_numeric(df_assessor_avm.YearBuilt, errors="coerce")
+    df_assessor_avm = df_assessor_avm.loc[
+        (df_assessor_avm.AssessorLastSaleDate.notna())
+        & (df_assessor_avm.YearBuilt.notna())
+        & (df_assessor_avm.AssessorLastSaleDate.dt.year >= df_assessor_avm.YearBuilt)
+    ]
+    # df_assessor_avm["last_sale_date"] = df_assessor_avm.AssessorLastSaleDate
+    # df_assessor_avm["last_sale_price"] = df_assessor_avm.AssessorLastSaleAmount
+
+    # df = df_assessor_avm.copy()
+    # df["last_sale_date"] = df.AssessorLastSaleDate
+    # df["last_sale_price"] = df.AssessorLastSaleAmount
+    # df["Parid"] = df["ParidFormatted"]
 
     df["ParidFormatted"] = format_parid(df, "Parid")
-    df = pd.merge(df, df_assessor_avm, on="ParidFormatted", how="inner").drop(columns=["[ATTOM ID]", "ParidFormatted"])
+    df = pd.merge(df, df_assessor_avm, on="ParidFormatted", how="left")
+    df["Parid"] = df.Parid.fillna(df.ParidFormatted)
+    df = df.drop(columns=["[ATTOM ID]", "ParidFormatted"])
 
     del df_assessor
     del df_avm
@@ -136,7 +155,7 @@ def get_df_state(task, landing_directory):
         "PropertyAddressFull",
         "PropertyAddressCity",
         "CompanyFlag",
-        "Owner Name 1",
+        # "Owner Name 1",
         "OwnerTypeDescription1",
         "PartyOwner1NameFull",
         "PropertyUseGroup",
@@ -214,7 +233,7 @@ def get_df_state(task, landing_directory):
                         "last_sale_year",
                     ],
                     previous_column=column,
-                    min_sale_price=min_sale_price,
+                    min_sale_price=0,
                 ),
                 df_copy.loc[df_copy[column].notna()].to_dict("records"),
             )
@@ -301,14 +320,7 @@ def get_df_state(task, landing_directory):
 
     def is_good_sale(row):
         return (
-            1
-            if (
-                row["business_owner"] == 0
-                and row["last_business_owner"] == 0
-                and row["same_owner"] == 0
-                and (pd.isna(row["last_sale_price"]) or (row["last_sale_price"] < (2 * row["TaxMarketValueTotal"])))
-            )
-            else 0
+            1 if ((row["same_owner"] == 0) and (pd.isna(row["last_sale_price"]) or (row["last_sale_price"] > 0))) else 0
         )
 
     task.logger.info("Filtering final raw data and adding columns")
@@ -320,12 +332,12 @@ def get_df_state(task, landing_directory):
         & (df_all.PropertyAddressFull.notna())
         & (df_all.TaxMarketValueTotal > 0)
         & (df_all.TaxMarketValueTotalRounded > 0)
-        & (df_all.EstimatedValue > 0)
+        # & (df_all.EstimatedValue > 0)
     ]
 
-    df_all["LastPartyOwner1NameFull"] = df_all.groupby("Parid")["Owner Name 1"].shift()
+    df_all["LastPartyOwner1NameFull"] = df_all.groupby("Parid")["PartyOwner1NameFull"].shift()
     df_all["LastLastPartyOwner1NameFull"] = df_all.groupby("Parid")["LastPartyOwner1NameFull"].shift()
-    df_all["business_owner"] = df_all["Owner Name 1"].apply(is_business_owner)
+    df_all["business_owner"] = df_all["PartyOwner1NameFull"].apply(is_business_owner)
     df_all["last_business_owner"] = df_all["LastPartyOwner1NameFull"].apply(is_business_owner)
     df_all["same_owner"] = df_all.apply(is_same_owner, axis=1)
     df_all["good_sale"] = df_all.apply(is_good_sale, axis=1)
@@ -378,8 +390,8 @@ def get_df_state(task, landing_directory):
             "TaxMarketValueTotalRounded",
             "EstimatedValueRounded",
             "last_sale_priceRounded",
-            "ValidSale",
-            "DeedType",
+            # "ValidSale",
+            # "DeedType",
             "business_owner",
             "next_business_owner",
             "same_owner",
