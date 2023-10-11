@@ -43,6 +43,7 @@ from freeholdforecast.common.county_dfs import get_df_county, get_df_state
 from freeholdforecast.common.task import Task
 from freeholdforecast.common.static import (
     get_parcel_months_since_last_sale,
+    get_parcel_months_since_last_sale_max,
     get_parcel_months_since_year_built,
     get_parcel_prepared_data,
     train_model,
@@ -84,7 +85,7 @@ class ETL_ML_Task(Task):
         self.prediction_period_end_date = self.prediction_period_end_date.replace(day=month_days)
 
         # test_is_same_year_as_train = self.test_date.month > 2
-        self.train_end_date = self.test_date - relativedelta(months=+1)
+        self.train_end_date = self.test_date - relativedelta(months=+6)
         first_weekday, month_days = monthrange(self.train_end_date.year, self.train_end_date.month)
         self.train_end_date = self.train_end_date.replace(day=month_days)
 
@@ -104,10 +105,10 @@ class ETL_ML_Task(Task):
 
         # self.min_months_since_last_sale = 16 * 12
         # self.max_months_since_last_sale = 100 * 12
-        self.min_months_since_last_sale = 4
-        # self.max_months_since_last_sale = 80
+        self.min_months_since_last_sale = 10
+        self.max_months_since_last_sale = 20
         self.logger.info(f"Min months since last sale: {self.min_months_since_last_sale}")
-        # self.logger.info(f"Max months since last sale: {self.max_months_since_last_sale}")
+        self.logger.info(f"Max months since last sale: {self.max_months_since_last_sale}")
         # self.min_sale_price_quantile = 0.10
         # self.max_sale_price_quantile = 0.99
 
@@ -117,7 +118,7 @@ class ETL_ML_Task(Task):
         # self.drop_label_names = self.label_names
         self.drop_label_names = self.label_names + ["sale_in_6_months", "sale_in_12_months"]
 
-        self.classification_proba_threshold = 0.65
+        self.classification_proba_threshold = 0.7
         self.logger.info(f"Classification probability threshold: {self.classification_proba_threshold}")
 
         self.numeric_columns = [
@@ -305,9 +306,9 @@ class ETL_ML_Task(Task):
                 pickle.dump(self.ordinal_encoder, ordinal_encoder_file)
                 copy_file_to_storage("etl", ordinal_encoder_path)
 
-        self.df_raw_encoded = self.df_raw_encoded.loc[
-            (self.df_raw_encoded.YearBuilt >= 1900) & (self.df_raw_encoded.EstimatedValue >= 150000)
-        ]
+        # self.df_raw_encoded = self.df_raw_encoded.loc[
+        #     (self.df_raw_encoded.YearBuilt >= 1900) & (self.df_raw_encoded.EstimatedValue >= 250000)
+        # ]
 
         self.logger.info(f"Total encoded parcels: {self.df_raw_encoded.Parid.nunique()}")
         self.logger.info(f"Total encoded sales: {len(self.df_raw_encoded)}")
@@ -333,7 +334,7 @@ class ETL_ML_Task(Task):
                     partial(
                         get_parcel_prepared_data,
                         df_raw_encoded=self.df_raw_encoded.loc[self.df_raw_encoded.Parid.isin(parcel_ids)].copy(),
-                        # train_start_date=(self.train_start_date - relativedelta(months=+6)),
+                        # train_start_date=(self.train_start_date - relativedelta(months=+48)),
                         train_start_date=self.train_start_date,
                         min_months_since_last_sale=self.min_months_since_last_sale,
                     ),
@@ -361,18 +362,84 @@ class ETL_ML_Task(Task):
 
         self.logger.info("Splitting data")
 
+        # 2023-03-01
+        self.classification_train_columns = [
+            # "PartyOwner1NameFull",
+            "total_sales",
+            # "SitusCounty",
+            "CompanyFlag",
+            "OwnerTypeDescription1",
+            # "YearBuilt",
+            "PropertyUseGroup",
+            # "PropertyAddressZIP",
+            # "BathCount",
+            "BathPartialCount",
+            "StoriesCount",
+            "ConfidenceScore",
+            # "AreaBuildingRounded",
+            # "TaxMarketValueLandRounded",
+            # "TaxMarketValueImprovementsRounded",
+            "TaxMarketValueTotalRounded",
+            # "YearBuiltRounded",
+            # "EstimatedValueRounded",
+            "business_owner",
+            # "good_sale",
+            # "same_owner",
+        ]
+
+        # # 2022-03-01
+        # self.classification_train_columns = [
+        #     # "PartyOwner1NameFull",
+        #     # "total_sales",
+        #     "SitusCounty",
+        #     # "NeighborhoodCode",
+        #     "CompanyFlag",
+        #     "OwnerTypeDescription1",
+        #     # "YearBuilt",
+        #     "PropertyUseGroup",
+        #     # "PropertyAddressZIP",
+        #     # "BathCount",
+        #     "BathPartialCount",
+        #     "StoriesCount",
+        #     "ConfidenceScore",
+        #     # "AreaBuildingRounded",
+        #     # "TaxMarketValueLandRounded",
+        #     # "TaxMarketValueImprovementsRounded",
+        #     "TaxMarketValueTotalRounded",
+        #     # "YearBuiltRounded",
+        #     # "EstimatedValueRounded",
+        #     "business_owner",
+        #     # "good_sale",
+        #     # "same_owner",
+        # ]
+
+        self.regression_train_columns = [
+            "PropertyUseGroup",
+            "YearBuiltRounded",
+            "AreaBuildingRounded",
+            "TaxMarketValueLandRounded",
+            "TaxMarketValueImprovementsRounded",
+            "TaxMarketValueTotalRounded",
+            "EstimatedValueRounded",
+            "last_sale_priceRounded",
+            "ConfidenceScore",
+        ]
+
         non_train_columns = [
             "Parid",
-            # "YearBuilt",
+            "YearBuilt",
+            "NeighborhoodCode",
+            # "ValidSale",
             "PropertyAddressFull",
-            # "PropertyAddressCity",
-            # "PropertyAddressZIP",
-            # "SitusCounty",
-            # "SitusStateCode",
+            "PropertyAddressCity",
+            "PropertyAddressZIP",
+            "SitusCounty",
+            "SitusStateCode",
             "PropertyLatitude",
             "PropertyLongitude",
             "PartyOwner1NameFull",
             # "CompanyFlag",
+            # "DeedType",
             # "OwnerTypeDescription1",
             # "PropertyUseGroup",
             # "BathCount",
@@ -384,29 +451,31 @@ class ETL_ML_Task(Task):
             "TaxMarketValueLand",
             "TaxMarketValueImprovements",
             "TaxMarketValueTotal",
-            # "YearBuiltRounded",
+            "YearBuiltRounded",
             # "AreaBuildingRounded",
-            # "AreaLotSFRounded",
-            # "TaxMarketValueLandRounded",
-            # "TaxMarketValueImprovementsRounded",
+            "AreaLotSFRounded",
+            "TaxMarketValueLandRounded",
+            "TaxMarketValueImprovementsRounded",
             # "TaxMarketValueTotalRounded",
-            # "EstimatedValueRounded",
-            # "last_sale_priceRounded",
+            "EstimatedValueRounded",
+            "last_sale_priceRounded",
             "ValuationDate",
             "EstimatedValue",
-            "ConfidenceScore",
+            # "ConfidenceScore",
             # "business_owner",
             "next_business_owner",
-            # "same_owner",
+            "same_owner",
             "next_same_owner",
-            # "good_sale",
+            "good_sale",
             "next_good_sale",
             "last_sale_date",
             "last_sale_price",
             "next_sale_date",
             "date",
             "month",
-            # "months_since_last_sale",
+            "months_since_last_sale_max",
+            "months_since_last_sale",
+            "months_since_year_built",
             # "total_sales",
         ]
 
@@ -414,7 +483,8 @@ class ETL_ML_Task(Task):
             (self.df_prepared.date >= self.test_date)
             & (self.df_prepared.date <= self.test_date)
             & (self.df_prepared.months_since_last_sale >= self.min_months_since_last_sale)
-            # & (self.df_prepared.months_since_last_sale <= self.max_months_since_last_sale)
+            & (self.df_prepared.months_since_last_sale <= self.max_months_since_last_sale)
+            # & (self.df_prepared.business_owner == 1)
             & ((self.df_prepared.next_good_sale.isna()) | (self.df_prepared.next_good_sale == 1))
         ]
 
@@ -423,7 +493,8 @@ class ETL_ML_Task(Task):
                 (self.df_prepared.date >= self.train_start_date)
                 & (self.df_prepared.date <= self.train_end_date)
                 & (self.df_prepared.months_since_last_sale >= self.min_months_since_last_sale)
-                # & (self.df_prepared.months_since_last_sale <= self.max_months_since_last_sale)
+                & (self.df_prepared.months_since_last_sale <= self.max_months_since_last_sale)
+                # & (self.df_prepared.business_owner == 1)
                 & ((self.df_prepared.next_good_sale.isna()) | (self.df_prepared.next_good_sale == 1))
             ].sort_values(by="date", ignore_index=True)
             # .drop_duplicates(subset=["Parid", self.classification_label_names[0]], keep="last", ignore_index=True)
@@ -451,13 +522,15 @@ class ETL_ML_Task(Task):
             # & (self.df_train_classification.sale_in_12_months == 1)
         ]
 
-        self.df_test = self.df_test.drop(columns=non_train_columns).drop_duplicates(ignore_index=True)
-        self.df_train_classification = self.df_train_classification.drop(columns=non_train_columns).drop_duplicates(
-            ignore_index=True
-        )
-        self.df_train_regression = self.df_train_regression.drop(columns=non_train_columns).drop_duplicates(
-            ignore_index=True
-        )
+        self.df_test = self.df_test[
+            list(set(self.drop_label_names + self.classification_train_columns + self.regression_train_columns))
+        ].drop_duplicates(ignore_index=True)
+        self.df_train_classification = self.df_train_classification[
+            self.drop_label_names + self.classification_train_columns
+        ].drop_duplicates(ignore_index=True)
+        self.df_train_regression = self.df_train_regression[
+            self.drop_label_names + self.regression_train_columns
+        ].drop_duplicates(ignore_index=True)
 
     def _train_models(self):
         gc.collect()
@@ -473,7 +546,7 @@ class ETL_ML_Task(Task):
 
         if self.is_local:
             # max_jobs = self.cpu_count - 3
-            self.fit_minutes = 20
+            self.fit_minutes = 30
             self.per_job_fit_minutes = 5
             self.per_job_fit_memory_limit_gb = 3
 
@@ -502,7 +575,7 @@ class ETL_ML_Task(Task):
                     self.df_train_classification[label_name].notna()
                 ].drop_duplicates()
                 X_train = df_train.drop(columns=self.drop_label_names).to_numpy()
-                X_test = df_test.drop(columns=self.drop_label_names).to_numpy()
+                X_test = df_test.drop(columns=self.drop_label_names)[self.classification_train_columns].to_numpy()
 
                 y_train = df_train[label_name].values
                 y_test = df_test[label_name].values
@@ -512,16 +585,24 @@ class ETL_ML_Task(Task):
                 X_train_res = X_train
                 y_train_res = y_train
 
-                undersample_strategy = 0.3
-                undersample_jobs = -1
-                undersample_random_state = 1234
-                # undersample = CondensedNearestNeighbour(n_jobs=undersample_jobs)
-                # undersample = NearMiss(sampling_strategy=undersample_strategy, n_jobs=undersample_jobs)
-                undersample = RandomUnderSampler(sampling_strategy=undersample_strategy, random_state=undersample_random_state)
-                # undersample = RepeatedEditedNearestNeighbours(n_jobs=undersample_jobs)
-                # undersample = TomekLinks(n_jobs=undersample_jobs)
-                X_train_res, y_train_res = undersample.fit_resample(X_train, y_train)
-                log_y_label_stats(f"{label_name} train labels resampled", y_train_res)
+                # undersample_strategy = 0.2
+                # undersample_jobs = -1
+                # undersample_random_state = 1234
+                # # undersample = CondensedNearestNeighbour(
+                # #     sampling_strategy=undersample_strategy,
+                # #     random_state=undersample_random_state,
+                # #     n_jobs=undersample_jobs,
+                # # )
+                # # undersample = NearMiss(sampling_strategy=undersample_strategy, n_jobs=undersample_jobs)
+                # undersample = RandomUnderSampler(
+                #     sampling_strategy=undersample_strategy, random_state=undersample_random_state
+                # )
+                # # undersample = RepeatedEditedNearestNeighbours(
+                # #     sampling_strategy=undersample_strategy, n_jobs=undersample_jobs
+                # # )
+                # # undersample = TomekLinks(n_jobs=undersample_jobs)
+                # X_train_res, y_train_res = undersample.fit_resample(X_train, y_train)
+                # log_y_label_stats(f"{label_name} train labels resampled", y_train_res)
 
                 if sum(y_test) > 0:
                     log_y_label_stats(f"{label_name} test labels", y_test)
@@ -553,7 +634,7 @@ class ETL_ML_Task(Task):
                     self.logger.info(f"{label_name} test total: {len(df_test)}")
 
                 X_train = df_train.drop(columns=self.drop_label_names).to_numpy()
-                X_test = df_test.drop(columns=self.drop_label_names).to_numpy()
+                X_test = df_test.drop(columns=self.drop_label_names)[self.regression_train_columns].to_numpy()
 
                 y_train = df_train[label_name].values
                 y_test = df_test[label_name].values
@@ -609,7 +690,9 @@ class ETL_ML_Task(Task):
                     self.logger.info(f"Metrics with {type_of_df_temp} data:")
 
                     if is_classification:
-                        X_test = df_temp.drop(columns=self.drop_label_names).to_numpy()
+                        X_test = df_temp.drop(columns=self.drop_label_names)[
+                            self.classification_train_columns
+                        ].to_numpy()
                         y_test = df_temp[label_name].values
 
                         y_pred_proba = [y[1] for y in model.predict_proba(X_test)]
@@ -645,7 +728,7 @@ class ETL_ML_Task(Task):
                             )
                     else:
                         df_temp = df_temp.loc[df_temp[self.classification_label_names[0]] == 1].drop_duplicates()
-                        X_test = df_temp.drop(columns=self.drop_label_names).to_numpy()
+                        X_test = df_temp.drop(columns=self.drop_label_names)[self.regression_train_columns].to_numpy()
                         y_test = df_temp[label_name].values
                         y_pred = model.predict(X_test)
 
@@ -673,6 +756,10 @@ class ETL_ML_Task(Task):
             partial(get_parcel_months_since_last_sale, current_date=self.test_date),
             self.df_current.last_sale_date,
         )
+        self.df_current["months_since_last_sale_max"] = Pool(self.cpu_count).map(
+            partial(get_parcel_months_since_last_sale_max, current_date=self.test_date),
+            self.df_current.last_sale_date,
+        )
         self.df_current["months_since_year_built"] = Pool(self.cpu_count).map(
             partial(get_parcel_months_since_year_built, current_date=self.test_date),
             self.df_current.YearBuilt,
@@ -696,15 +783,17 @@ class ETL_ML_Task(Task):
         # ]
 
         self.logger.info(f"Total properties in current data frame: {len(self.df_current)}")
-        train_columns = list(self.df_train_classification.drop(columns=self.drop_label_names).columns)
-        X_current = self.df_current[train_columns].to_numpy()
+        # train_columns = list(self.df_train_classification.drop(columns=self.drop_label_names).columns)
+        # X_current = self.df_current[train_columns].to_numpy()
 
         for label_name in self.classification_label_names:
             self.logger.info(f"Loading predictions for {label_name}")
             model = mlflow.sklearn.load_model(self.model_directories[label_name])
 
             pred_label_name = f"pred_{label_name}"
-            self.df_current[pred_label_name] = [y[1] for y in model.predict_proba(X_current)]
+            self.df_current[pred_label_name] = [
+                y[1] for y in model.predict_proba(self.df_current[self.classification_train_columns].to_numpy())
+            ]
 
             for pred_proba in np.arange(0.1, 1.0, 0.1):
                 pred_proba = round(pred_proba, 1)
@@ -715,14 +804,14 @@ class ETL_ML_Task(Task):
                 self.df_current[pred_label_name] > self.classification_proba_threshold
             ]
 
-        X_current = self.df_current[train_columns].to_numpy()
-
         for label_name in self.regression_label_names:
             self.logger.info(f"Loading predictions for {label_name}")
             model = mlflow.sklearn.load_model(self.model_directories[label_name])
 
             pred_label_name = f"pred_{label_name}"
-            self.df_current[pred_label_name] = model.predict(X_current).round(decimals=-4)
+            self.df_current[pred_label_name] = model.predict(
+                self.df_current[self.regression_train_columns].to_numpy()
+            ).round(decimals=-4)
 
             mape_value = 0.125
             self.logger.info(f"MAPE for {label_name}: {mape_value:.3f}")
@@ -775,26 +864,38 @@ class ETL_ML_Task(Task):
                 lambda value: None if pd.isna(value) else pd.to_datetime(value).date()
             )
 
-        self.df_predictions = self.df_predictions.loc[
-            (self.df_predictions.PropertyAddressFull.notna())
-            & (self.df_predictions.PropertyAddressCity.notna())
-            & (self.df_predictions.PropertyLatitude.notna())
-            & (self.df_predictions.PropertyLongitude.notna())
-            & (self.df_predictions.pred_next_sale_price > self.df_predictions.pred_next_sale_price.quantile(0.1))
-            & (self.df_predictions.pred_next_sale_price < self.df_predictions.pred_next_sale_price.quantile(0.99))
-            # & (self.df_predictions.pred_next_sale_price > self.min_value)
-            # & (self.df_predictions.EstimatedValue > self.min_value)
-            & (self.df_predictions.pred_next_sale_price > self.df_predictions.TaxMarketValueTotal)
-            & (self.df_predictions.pred_next_sale_price < (3 * self.df_predictions.TaxMarketValueTotal))
-            & (
-                (self.df_predictions.next_sale_date.isna() & self.df_predictions.next_sale_price.isna())
-                | (
-                    self.df_predictions.next_sale_date.notna()
-                    & self.df_predictions.next_sale_price.notna()
-                    & (self.df_predictions.next_sale_date >= self.df_predictions.prediction_period_start)
+        self.df_predictions["months_since_last_sale"] = pd.to_numeric(self.df_predictions.months_since_last_sale)
+        self.df_predictions["pred_sale_in_3_months"] = pd.to_numeric(self.df_predictions.pred_sale_in_3_months)
+        self.df_predictions["total_sales"] = pd.to_numeric(self.df_predictions.total_sales)
+
+        self.min_value = 250000
+
+        self.df_predictions = (
+            self.df_predictions.loc[
+                (self.df_predictions.PropertyAddressFull.notna())
+                & (self.df_predictions.PropertyAddressCity.notna())
+                & (self.df_predictions.PropertyLatitude.notna())
+                & (self.df_predictions.PropertyLongitude.notna())
+                & (self.df_predictions.pred_next_sale_price > self.df_predictions.pred_next_sale_price.quantile(0.1))
+                & (self.df_predictions.pred_next_sale_price < self.df_predictions.pred_next_sale_price.quantile(0.99))
+                & (self.df_predictions.pred_next_sale_price > self.min_value)
+                & (self.df_predictions.EstimatedValue > self.min_value)
+                & (self.df_predictions.pred_sale_in_3_months >= self.classification_proba_threshold)
+                & (self.df_predictions.AreaBuilding > 0)
+                & (self.df_predictions.pred_next_sale_price > self.df_predictions.TaxMarketValueTotal)
+                & (self.df_predictions.pred_next_sale_price < (3 * self.df_predictions.TaxMarketValueTotal))
+                & (
+                    (self.df_predictions.next_sale_date.isna() & self.df_predictions.next_sale_price.isna())
+                    | (
+                        self.df_predictions.next_sale_date.notna()
+                        & self.df_predictions.next_sale_price.notna()
+                        & (self.df_predictions.next_sale_date >= self.df_predictions.prediction_period_start)
+                    )
                 )
-            )
-        ]
+            ]
+            .sort_values(by="pred_sale_in_3_months", ascending=False)
+            .head(100)
+        )
 
         self.logger.info(f"Total predictions: {len(self.df_predictions)}")
 
@@ -810,6 +911,8 @@ class ETL_ML_Task(Task):
                 "PropertyLatitude",
                 "PropertyLongitude",
                 "PropertyUseGroup",
+                # "CompanyFlag",
+                "business_owner",
                 "AreaBuilding",
                 "AreaLotSF",
                 "StoriesCount",
@@ -841,6 +944,8 @@ class ETL_ML_Task(Task):
                 "PropertyLatitude": "latitude",
                 "PropertyLongitude": "longitude",
                 "PropertyUseGroup": "propertyUse",
+                # "CompanyFlag": "companyFlag",
+                "business_owner": "businessOwner",
                 "AreaBuilding": "areaBuildingSqft",
                 "AreaLotSF": "areaLotSqft",
                 "StoriesCount": "stories",
