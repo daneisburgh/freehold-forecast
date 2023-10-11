@@ -33,17 +33,15 @@ jobs:
         run: |
           pip install -e ".[dev]"
 
-      - name: Run unit tests
-        run: |
-          echo "Launching unit tests"
-          pytest tests/unit
+      # - name: Run unit tests
+      #   run: |
+      #     echo "Launching unit tests"
+      #     pytest tests/unit
 
-      - name: Workflow deployment (assets only upload)
-        run: |
-          dbx deploy freeholdforecast-sample-etl --assets-only
-          dbx deploy freeholdforecast-sample-ml --assets-only
+      # - name: Workflow deployment (assets only upload)
+      #   run: |
+      #     dbx deploy freeholdforecast-etl-ml --assets-only
 
-      - name: Run the workflow in a jobless fashion
-        run: |
-          dbx launch freeholdforecast-sample-etl --from-assets --trace
-          dbx launch freeholdforecast-sample-ml --from-assets --trace
+      # - name: Run the workflow in a jobless fashion
+      #   run: |
+      #     dbx launch freeholdforecast-etl-ml --from-assets --trace

@@ -19,14 +19,14 @@ def get_df_dat(county, landing_directory):
     data_directory = os.path.join(landing_directory, download_file_name.replace(".zip", ""))
     make_directory(data_directory)
 
-    # download_file_from_source(download_url, download_file_path)
+    download_file_from_source(download_url, download_file_path)
 
-    # subprocess.run(
-    #     f"unzip {download_file_path} -d {data_directory}".split(),
-    #     check=True,
-    #     stdout=subprocess.DEVNULL,
-    #     stderr=subprocess.STDOUT,
-    # )
+    subprocess.run(
+        f"unzip {download_file_path} -d {data_directory}".split(),
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.STDOUT,
+    )
 
     data_subdirectory = os.path.join(data_directory, os.listdir(data_directory)[0])
 
@@ -35,30 +35,30 @@ def get_df_dat(county, landing_directory):
 
     df_parcels = get_df_parcels(data_directory)
     df_asmt = get_df_asmt(data_directory)
-    df_legal = get_df_legal(data_directory)
+    # df_legal = get_df_legal(data_directory)
     df_sales = get_df_sales(data_directory)
-    df_dwell = get_df_dwell(data_directory)
+    # df_dwell = get_df_dwell(data_directory)
 
     df = (
-        df_parcels.merge(df_asmt, on="Parid", suffixes=("_parcels0", "_asmt"))
-        .merge(df_legal, on="Parid", suffixes=("_parcels1", "_legal"))
-        .merge(df_sales, on="Parid", suffixes=("_parcels2", "_sales"))
-        .merge(df_dwell, on="Parid", suffixes=("_parcels3", "_dwell"))
+        df_parcels.merge(df_asmt, on="Parid", suffixes=("_parcels0", "_asmt"), how="left")
+        .merge(df_sales, on="Parid", suffixes=("_parcels1", "_sales"), how="left")
+        # .merge(df_legal, on="Parid", suffixes=("_parcels2", "_legal"))
+        # .merge(df_dwell, on="Parid", suffixes=("_parcels3", "_dwell"))
     )
 
     rename_columns = {
         "Own1": "Owner Name 1",
-        "Adrno_legal": "House #",
-        "Adrstr_legal": "Street Name",
-        "Adrsuf_legal": "Street Suffix",
-        "Zip1_legal": "Zip Code",
-        "Sfla": "Livable Sqft",
-        "Saletype": "Deed Type",
-        "Saleval": "Valid Sale",
+        # "Adrno_legal": "House #",
+        # "Adrstr_legal": "Street Name",
+        # "Adrsuf_legal": "Street Suffix",
+        # "Zip1_legal": "Zip Code",
+        # "Sfla": "Livable Sqft",
+        "Saletype": "DeedType",
+        "Saleval": "ValidSale",
         "Price": "Sale Price",
         "Aprbldg": "Building Value",
         "Aprland": "Land Value",
-        "Taxdist": "Tax District",
+        # "Taxdist": "Tax District",
         "Class_asmt": "Property Class",
     }
 
@@ -72,8 +72,8 @@ def get_df_dat(county, landing_directory):
         "Year of Sale",
         "Month of Sale",
         "Day of Sale",
-        "Stories",
-        "Year Built",
+        # "Stories",
+        # "Year Built",
         "last_sale_price",
         "last_sale_date",
     ] + list(rename_columns.values())

@@ -1,63 +1,23 @@
-# def get_df_attom_recorder_additional_data(row, assessor_columns, recorder_columns):
-#     import numpy as np
-#     import pandas as pd
-
-#     from datetime import datetime, timedelta
-
-#     from freeholdforecast.common.utils import date_string
-
-#     recorder_additional_object = {}
-
-#     ignore_assessor_columns = [
-#         "TaxYearAssessed",
-#         "TaxAssessedValueTotal",
-#         "TaxAssessedValueImprovements",
-#         "TaxAssessedValueLand",
-#         "PreviousAssessedValue",
-#         "TaxMarketValueYear",
-#         "TaxMarketValueTotal",
-#         "TaxMarketValueImprovements",
-#         "TaxMarketValueLand",
-#         "TaxExemptionHomeownerFlag",
-#     ]
-
-#     for column in assessor_columns:
-#         recorder_additional_object[column] = (
-#             np.nan if column in recorder_columns or column in ignore_assessor_columns else row[column]
-#         )
-
-#     recorder_additional_object["InstrumentDate"] = np.nan
-#     recorder_additional_object["TransferAmount"] = np.nan
-
-#     # min_year_built = datetime.now().year - max_year_diff
-
-#     if pd.notna(row["YearBuilt"]):
-#         year_built = int(row["YearBuilt"])
-
-#         # if year_built < min_year_built:
-#         #     year_built = min_year_built
-
-#         recorder_additional_object["InstrumentDate"] = date_string(datetime(year_built, 1, 1))
-
-#     return recorder_additional_object
-
-
-def get_df_additional_data(row, all_columns, ignore_columns):
+def get_df_additional_data(row, all_columns, ignore_columns, previous_column, min_sale_price):
     import numpy as np
     import pandas as pd
 
     from datetime import datetime, timedelta
 
-    from freeholdforecast.common.utils import date_string
+    from freeholdforecast.common.utils import date_string, to_numeric
 
     additional_object = {}
 
     for column in all_columns:
         additional_object[column] = np.nan if column in ignore_columns else row[column]
 
-    year_built = int(row["Year Built"])
-
-    additional_object["last_sale_date"] = date_string(datetime(year_built, 1, 1))
+    if previous_column == "AssessorLastSaleDate" and pd.notna(row["AssessorLastSaleDate"]):
+        additional_object["last_sale_date"] = row["AssessorLastSaleDate"]
+        additional_object["last_sale_price"] = (
+            row["AssessorLastSaleAmount"] if to_numeric(row["AssessorLastSaleAmount"]) > min_sale_price else np.nan
+        )
+    elif previous_column == "YearBuilt":
+        additional_object["last_sale_date"] = date_string(datetime(int(row["YearBuilt"]), 1, 1))
 
     return additional_object
 
@@ -98,8 +58,8 @@ def get_parcel_prepared_data(
     prepared_data = []
 
     for parcel_id in parcel_ids:
-        months_since_last_sale = 0
-        months_since_year_built = 0
+        # months_since_year_built = 0
+        total_sales = 0
 
         df_parcel_sales = df_raw_encoded.loc[df_raw_encoded.Parid == parcel_id].sort_values(
             by="last_sale_date", ascending=True, ignore_index=True
@@ -109,6 +69,8 @@ def get_parcel_prepared_data(
         # df_parcel_sales["next_sale_price"] = df_parcel_sales.last_sale_price.shift(-1)
 
         for row_index, row in df_parcel_sales.iterrows():
+            months_since_last_sale = 0
+            total_sales += 1
             has_next_sale_date = pd.notna(row.next_sale_date)
 
             months = get_months(row.last_sale_date, row.next_sale_date)
@@ -116,11 +78,15 @@ def get_parcel_prepared_data(
 
             for date_index, date in enumerate(months):
                 if (total_months - 1) > date_index:
-                    if date >= train_start_date and months_since_last_sale >= min_months_since_last_sale:
+                    # if date >= train_start_date and months_since_last_sale >= min_months_since_last_sale:
+                    if date >= train_start_date and months_since_last_sale >= (min_months_since_last_sale * 12):
 
                         def has_next_sale(date_diff, has_next_sale_date):
                             return 1 if date_index >= (total_months - date_diff - 1) and has_next_sale_date else 0
                             # return 1 if date_index == (total_months - date_diff - 1) and has_next_sale_date else 0
+
+                        months_since_last_sale_floor = math.floor(months_since_last_sale / 12)
+                        max_months_since_last_sale_floor = 25
 
                         prepared_data_object = {
                             "sale_in_3_months": has_next_sale(3, has_next_sale_date),
@@ -128,30 +94,31 @@ def get_parcel_prepared_data(
                             "sale_in_12_months": has_next_sale(12, has_next_sale_date),
                             "next_sale_price": to_numeric(row.next_sale_price),
                             "next_sale_date": row.next_sale_date,
-                            "next_valid_sale": row.next_valid_sale,
+                            "total_sales": total_sales,
                             "date": date.replace(day=1),
-                            # "month": date.month,
-                            # "months_since_last_sale": months_since_last_sale,
+                            "month": date.month,
+                            "months_since_last_sale": months_since_last_sale,
                             # "months_since_year_built": months_since_year_built,
-                            "months_since_last_sale": math.floor(months_since_last_sale / 12),
-                            "months_since_year_built": math.floor(months_since_year_built / 12),
+                            "months_since_last_sale_max": (
+                                months_since_last_sale_floor
+                                if months_since_last_sale_floor < max_months_since_last_sale_floor
+                                else max_months_since_last_sale_floor
+                            ),
+                            "months_since_last_sale": months_since_last_sale_floor,
+                            # "months_since_last_sale": math.floor(months_since_last_sale / 12),
+                            # "months_since_year_built": math.floor(months_since_year_built / 12),
                         }
 
                         for column in list(df_raw_encoded.columns):
                             prepared_data_object[column] = row[column]
 
-                        prepared_data_object["Livable Sqft Rounded"] = round_base(row["Livable Sqft"], 250)
-                        prepared_data_object["Sale Price Rounded"] = round_base(row["Sale Price"], 50000)
-                        prepared_data_object["Building Value Rounded"] = round_base(row["Building Value"], 25000)
-                        prepared_data_object["Land Value Rounded"] = round_base(row["Land Value"], 25000)
-
                         prepared_data.append(prepared_data_object)
 
                     months_since_last_sale += 1
-                    months_since_year_built += 1
+                    # months_since_year_built += 1
 
-                    if date_index == total_months - 2:
-                        months_since_last_sale = 0
+                    # if date_index == total_months - 2:
+                    #     months_since_last_sale = 0
 
     return pd.DataFrame(prepared_data)
 
@@ -165,7 +132,7 @@ def train_model(training_type, task, label_name, n_jobs, model_directory, X_trai
 
     from autosklearn.classification import AutoSklearnClassifier
     from autosklearn.regression import AutoSklearnRegressor
-    from autosklearn.metrics import f1, r2
+    from autosklearn.metrics import f1, precision, r2
     from sklearn.metrics import (
         average_precision_score,
         confusion_matrix,
@@ -176,6 +143,7 @@ def train_model(training_type, task, label_name, n_jobs, model_directory, X_trai
         r2_score,
         roc_auc_score,
     )
+    from sklearn.svm import OneClassSVM
 
     from freeholdforecast.common.utils import copy_directory_to_storage
 
@@ -188,7 +156,7 @@ def train_model(training_type, task, label_name, n_jobs, model_directory, X_trai
     resampling_strategy_arguments = {
         "train_size": 0.67,
         "shuffle": False,
-        "folds": 5,
+        "folds": 15,
     }
 
     mlflow_run = task.mlflow_client.create_run(task.mlflow_experiment.experiment_id)
@@ -216,8 +184,8 @@ def train_model(training_type, task, label_name, n_jobs, model_directory, X_trai
                 memory_limit=per_job_fit_memory_limit_mb,
                 n_jobs=n_jobs,
                 metric=f1,
-                include={"classifier": [algorithm]},
                 initial_configurations_via_metalearning=0,
+                include={"classifier": [algorithm]},
                 resampling_strategy=resampling_strategy,
                 resampling_strategy_arguments=resampling_strategy_arguments,
             )
@@ -228,8 +196,8 @@ def train_model(training_type, task, label_name, n_jobs, model_directory, X_trai
                 memory_limit=per_job_fit_memory_limit_mb,
                 n_jobs=n_jobs,
                 metric=r2,
-                include={"regressor": [algorithm]},
                 initial_configurations_via_metalearning=0,
+                include={"regressor": [algorithm]},
                 resampling_strategy=resampling_strategy,
                 resampling_strategy_arguments=resampling_strategy_arguments,
             )
@@ -279,6 +247,12 @@ def get_parcel_months_since_last_sale(last_sale_date, current_date):
     return diff_month(last_sale_date, current_date)
 
 
+def get_parcel_months_since_last_sale_max(last_sale_date, current_date):
+    months_since_last_sale_max = 25
+    months_since_last_sale = get_parcel_months_since_last_sale(last_sale_date, current_date)
+    return months_since_last_sale if months_since_last_sale < months_since_last_sale_max else months_since_last_sale_max
+
+
 def get_parcel_months_since_year_built(year_built, current_date):
     import numpy as np
     import pandas as pd
@@ -290,18 +264,4 @@ def get_parcel_months_since_year_built(year_built, current_date):
         np.nan
         if pd.isna(year_built) or int(year_built) < 1800
         else diff_month(datetime(int(year_built), 1, 1), current_date)
-    )
-
-
-def is_valid_sale(row):
-    import pandas as pd
-
-    return (
-        1
-        if (
-            # row["last_sale_price"] > (row["Building Value"] + row["Land Value"])
-            (pd.isna(row["same_owner"]) or row["same_owner"] == 0)
-            and (pd.isna(row["business_owner"]) or row["same_owner"] == 0)
-        )
-        else 0
     )

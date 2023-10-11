@@ -47,9 +47,9 @@ download_format_info = {
             "Year of Sale",
             "# of Parcels Sold",
             "Sale Price",
-            "Valid Sale",
+            "ValidSale",
             "Conveyance #",
-            "Deed Type",
+            "DeedType",
             "Appraisal Area",
             "PriorOwner",
             "PropertyNumber",
@@ -86,9 +86,9 @@ download_format_info = {
             "Year of Sale",
             "# of Parcels Sold",
             "Sale Price",
-            "Valid Sale",
+            "ValidSale",
             "Conveyance #",
-            "Deed Type",
+            "DeedType",
         ],
     },
 }
@@ -100,13 +100,14 @@ def get_df_hamilton(landing_directory):
     for format_name in download_format_info.keys():
         format_dfs.append(get_df_format(format_name, landing_directory))
 
-    df = pd.concat(format_dfs)
+    df = pd.concat(format_dfs, ignore_index=True)
     df = df.loc[~df["Book"].str.contains("book", na=False, case=False)]  # filter out header rows
     df["Book"] = df["Book"].apply(lambda x: str(x).rjust(3, "0"))
     df["Plat"] = df["Plat"].apply(lambda x: str(x).rjust(4, "0"))
     df["Parcel"] = df["Parcel"].apply(lambda x: str(x).rjust(4, "0"))
     df["ParcelID"] = df["ParcelID"].apply(lambda x: str(x).rjust(2, "0"))
     df["Parid"] = df[["Book", "Plat", "Parcel", "ParcelID"]].apply(lambda x: "".join(x.astype(str)), axis=1)
+    df["Parid"] = df.Parid.replace(" ", "", regex=True)
     df["Building Value"] = df["Building Value"].apply(to_numeric)
     df["Land Value"] = df["Land Value"].apply(to_numeric)
     df["Year of Sale"] = df["Year of Sale"].apply(lambda year: year if year not in [98, 99] else year + 1900)
@@ -124,8 +125,8 @@ def get_df_hamilton(landing_directory):
             "House #",
             "Street Name",
             "Street Suffix",
-            "Deed Type",
-            "Valid Sale",
+            "DeedType",
+            "ValidSale",
             "Sale Price",
             "Building Value",
             "Land Value",
@@ -139,8 +140,10 @@ def get_df_hamilton(landing_directory):
         ]
     ]
 
+    df = df.loc[df.last_sale_price > 0]
     df.sort_values(by="last_sale_date", ascending=True, ignore_index=True, inplace=True)
-    df = pd.merge(df, get_df_info(landing_directory), on="Parid", how="left")
+    df.drop_duplicates(subset=["Parid", "last_sale_date"], keep="first", ignore_index=True, inplace=True)
+    df = pd.merge(df, get_df_info(landing_directory), on="Parid", how="right")
     return df
 
 
@@ -181,8 +184,8 @@ def get_df_historical_sales(landing_directory):
     df["House #"] = df.house_number
     df["Street Name"] = df.street_name
     df["Street Suffix"] = df.street_suffix
-    df["Deed Type"] = df.instrument_type.str.split().str[0]
-    df["Valid Sale"] = "Y"
+    df["DeedType"] = df.instrument_type.str.split().str[0]
+    df["ValidSale"] = "Y"
     df["Sale Price"] = df.sale_price
     df["Building Value"] = np.nan
     df["Land Value"] = np.nan
