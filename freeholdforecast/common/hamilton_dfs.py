@@ -143,7 +143,7 @@ def get_df_hamilton(landing_directory):
     df = df.loc[df.last_sale_price > 0]
     df.sort_values(by="last_sale_date", ascending=True, ignore_index=True, inplace=True)
     df.drop_duplicates(subset=["Parid", "last_sale_date"], keep="first", ignore_index=True, inplace=True)
-    df = pd.merge(df, get_df_info(landing_directory), on="Parid", how="left")
+    df = pd.merge(df, get_df_info(landing_directory), on="Parid", how="right")
     return df
 
 
