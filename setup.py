@@ -16,13 +16,14 @@ PACKAGE_REQUIREMENTS = [
     "imbalanced-learn",
     "ipywidgets",
     "mlflow",
+    "numpy==1.23.1",
     "openpyxl",
     "pandas",
     "psycopg2",
     "pyarrow",
     "pyyaml",
     "scikit-learn",
-    "sqlalchemy",
+    "sqlalchemy==1.4.47",
     "xlsxwriter",
 ]
 
@@ -38,9 +39,11 @@ DEV_REQUIREMENTS = [
     "dbx>=0.8",
     "jupyter",
     "matplotlib",
+    "ipympl",
     "pandarallel",
     "pytest",
     "pytest-cov",
+    "black"
 ]
 
 setup(
