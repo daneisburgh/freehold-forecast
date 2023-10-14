@@ -2,7 +2,8 @@
 
 This project analyzes property transfers and uses machine learning to predict future sales and prices. Predictions are currently created for all properties in southwest Ohio and can be used by realtors, investors, and home buyers alike to explore trends and identify potential opportunities.
 
-While using this project, you need Python 3.X and `pip` or `conda` for package management.
+[![Integration](https://github.com/daneisburgh/freehold-forecast/actions/workflows/integration.yml/badge.svg)](https://github.com/daneisburgh/freehold-forecast/actions/workflows/integration.yml)
+[![Commitizen friendly](https://img.shields.io/badge/commitizen-friendly-brightgreen.svg)](http://commitizen.github.io/cz-cli/)
 
 ## Local environment setup
 
