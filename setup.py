@@ -34,6 +34,7 @@ DEV_REQUIREMENTS = [
     "ipympl",
     "jupyter",
     "matplotlib",
+    "mypy",
     "pandarallel",
     "pyspark",
     "pytest",
