@@ -1,6 +1,6 @@
 # Freehold Forecast
 
-This project analyzes property transfers and uses data science to predict future sales and prices. Predictions are currently created for all properties in southwest Ohio and can be used by realtors, investors, and home buyers alike to explore trends and identify potential opportunities.
+This project analyzes property transfers and uses machine learning to predict future sales and prices. Predictions are currently created for all properties in southwest Ohio and can be used by realtors, investors, and home buyers alike to explore trends and identify potential opportunities.
 
 While using this project, you need Python 3.X and `pip` or `conda` for package management.
 
@@ -9,7 +9,7 @@ While using this project, you need Python 3.X and `pip` or `conda` for package m
 1. Instantiate a local Python environment via a tool of your choice. This example is based on `conda`, but you can use any environment management tool:
 
 ```bash
-conda create -n freeholdforecast python=3.8
+conda create -n freeholdforecast python=3.10
 conda activate freeholdforecast
 ```
 
