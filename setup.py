@@ -21,7 +21,6 @@ PACKAGE_REQUIREMENTS = [
     "psycopg2==2.9.9",
     "pyarrow==13.0.0",
     "pyyaml==6.0.1",
-    "scikit-learn==0.24.0",
     "sqlalchemy==1.4.47",
     "urllib3==1.26.7",
     "xlsxwriter==3.1.7",
