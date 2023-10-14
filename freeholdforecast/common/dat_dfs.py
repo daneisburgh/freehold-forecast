@@ -40,8 +40,9 @@ def get_df_dat(county, landing_directory):
     # df_dwell = get_df_dwell(data_directory)
 
     df = (
-        df_parcels.merge(df_asmt, on="Parid", suffixes=("_parcels0", "_asmt"), how="left")
-        .merge(df_sales, on="Parid", suffixes=("_parcels1", "_sales"), how="left")
+        df_parcels.merge(df_asmt, on="Parid", suffixes=("_parcels0", "_asmt"), how="left").merge(
+            df_sales, on="Parid", suffixes=("_parcels1", "_sales"), how="left"
+        )
         # .merge(df_legal, on="Parid", suffixes=("_parcels2", "_legal"))
         # .merge(df_dwell, on="Parid", suffixes=("_parcels3", "_dwell"))
     )

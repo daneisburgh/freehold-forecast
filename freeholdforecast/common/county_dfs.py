@@ -36,7 +36,6 @@ def get_df_county(county, landing_directory):
 
 
 def get_df_state(task, landing_directory):
-
     df_counties = []
 
     for county in state_counties[task.state]:
