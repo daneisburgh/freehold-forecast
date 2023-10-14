@@ -1,17 +1,28 @@
-# Custom section is used to store configurations that might be repetative.
-# Please read YAML documentation for details on how to use substitutions and anchors.
-custom:
-  basic-static-cluster: &basic-static-cluster
-    new_cluster:
-      # <<: *basic-cluster-props
-      num_workers: 0
-      node_type_id: "Standard_E16as_v4"
-      spark_version: "12.2.x-scala2.12"
-
-# please note that we're using FUSE reference for config file, hence we're going to load this file using its local FS path
 environments:
   default:
-    - name: "freeholdforecast-etl-ml"
-      <<: *basic-static-cluster
-      spark_python_task:
-        python_file: "file://freeholdforecast/tasks/etl_ml_task.py"
+    workflows:
+      - name: "freehold-forecast-etl-ml"
+        job_clusters:
+          - job_cluster_key: "freehold-forecast-cluster"
+            new_cluster:
+              num_workers: 0
+              node_type_id: "Standard_E16as_v4"
+              spark_version: "12.2.x-scala2.12"
+              data_security_mode: "NONE"
+              spark_conf:
+                spark.databricks.delta.preview.enabled: "true"
+                spark.databricks.cluster.profile: "singleNode"
+                spark.master: "local[*,4]"
+              custom_tags:
+                ResourceClass: "SingleNode"
+        tasks:
+          - task_key: "freehold-forecast-etl"
+            job_cluster_key: "freehold-forecast-cluster"
+            spark_python_task:
+              python_file: "file://freeholdforecast/tasks/etl_task.py"
+          - task_key: "freehold-forecast-ml"
+            job_cluster_key: "freehold-forecast-cluster"
+            spark_python_task:
+              python_file: "file://freeholdforecast/tasks/ml_task.py"
+            depends_on:
+              - task_key: "freehold-forecast-etl"
