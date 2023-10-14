@@ -9,41 +9,38 @@ from setuptools import find_packages, setup
 from freeholdforecast import __version__
 
 PACKAGE_REQUIREMENTS = [
-    "auto-sklearn",
-    "azure-storage-blob",
-    "boto3",
-    "googlemaps",
-    "imbalanced-learn",
-    "ipywidgets",
-    "mlflow",
+    "auto-sklearn==0.15.0",
+    "azure-storage-blob==12.18.3",
+    "boto3==1.28.63",
+    "googlemaps==4.10.0",
+    "ipywidgets==8.1.1",
+    "mlflow==2.7.1",
     "numpy==1.23.1",
-    "openpyxl",
-    "pandas",
-    "psycopg2",
-    "pyarrow",
-    "pyyaml",
-    "scikit-learn",
+    "openpyxl==3.1.2",
+    "pandas==2.0.3",
+    "psycopg2==2.9.9",
+    "pyarrow==13.0.0",
+    "pyyaml==6.0.1",
+    "scikit-learn==0.24.0",
     "sqlalchemy==1.4.47",
-    "xlsxwriter",
+    "urllib3==1.26.7",
+    "xlsxwriter==3.1.7",
 ]
 
 DEV_REQUIREMENTS = [
-    # installation & build
-    "setuptools",
-    "wheel",
-    # versions set in accordance with DBR 10.4 ML Runtime
-    "delta-spark",
-    "pyspark",
-    # development & testing tools
+    "black[jupyter]",
     "coverage[toml]",
     "dbx>=0.8",
+    "delta-spark",
+    "ipympl",
     "jupyter",
     "matplotlib",
-    "ipympl",
     "pandarallel",
+    "pyspark",
     "pytest",
     "pytest-cov",
-    "black"
+    "setuptools",
+    "wheel",
 ]
 
 setup(
@@ -52,12 +49,6 @@ setup(
     setup_requires=["wheel"],
     install_requires=PACKAGE_REQUIREMENTS,
     extras_require={"dev": DEV_REQUIREMENTS},
-    entry_points={
-        "console_scripts": [
-            "etl = freeholdforecast.tasks.sample_etl_task:entrypoint",
-            "ml = freeholdforecast.tasks.sample_ml_task:entrypoint",
-        ]
-    },
     version=__version__,
     description="",
     author="",
