@@ -7,6 +7,7 @@ import pandas as pd
 import pickle
 import sqlalchemy
 
+from calendar import monthrange
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from functools import partial
@@ -34,6 +35,7 @@ from freeholdforecast.common.static import (
 from freeholdforecast.common.utils import (
     copy_directory_to_storage,
     copy_file_to_storage,
+    date_string,
     file_exists,
     make_directory,
     remove_directory,
@@ -42,10 +44,61 @@ from freeholdforecast.common.utils import (
 
 
 class ML_Task(Task):
-    def __init__(self, state: str, run_date=None):
+    def __init__(self, state="ohio", run_date=None):
+        """Initialize ETL task class and variables
+
+        Args:
+            state (str): State to train and create predictions
+            run_date (str, optional): Run date required for historical performance testing
+        """
+
         super().__init__()
+        self.state = state
+        self.run_date = run_date if run_date is not None else date_string(datetime.now())
+        self.logger.info(f"Initializing task for {self.state} with run date {self.run_date}")
+
+        self.test_date = (datetime.strptime(self.run_date, "%Y-%m-%d")).replace(day=1)
+        self.prediction_period_start_date = (self.test_date + relativedelta(months=+1)).replace(day=1)
+
+        self.prediction_period_end_date = self.prediction_period_start_date + relativedelta(months=+2)
+        first_weekday, month_days = monthrange(
+            self.prediction_period_end_date.year, self.prediction_period_end_date.month
+        )
+        self.prediction_period_end_date = self.prediction_period_end_date.replace(day=month_days)
+
+        self.train_end_date = self.test_date - relativedelta(months=+6)
+        first_weekday, month_days = monthrange(self.train_end_date.year, self.train_end_date.month)
+        self.train_end_date = self.train_end_date.replace(day=month_days)
+
+        self.train_start_date = self.train_end_date - relativedelta(months=+12)
+        self.train_start_date = self.train_start_date.replace(day=1)
+
+        self.logger.info(f"Train dates: {date_string(self.train_start_date)} to {date_string(self.train_end_date)}")
+        self.logger.info(f"Test date: {date_string(self.test_date)}")
+        self.logger.info(
+            f"Prediction period: {date_string(self.prediction_period_start_date)} to {date_string(self.prediction_period_end_date)}"
+        )
+
+        self.min_months_since_last_sale = 10
+        self.max_months_since_last_sale = 20
+        self.logger.info(f"Min months since last sale: {self.min_months_since_last_sale}")
+        self.logger.info(f"Max months since last sale: {self.max_months_since_last_sale}")
+
+        self.classification_label_names = ["sale_in_3_months"]
+        self.regression_label_names = ["next_sale_price"]
+        self.label_names = self.classification_label_names + self.regression_label_names
+        self.drop_label_names = self.label_names + ["sale_in_6_months", "sale_in_12_months"]
+
+        self.classification_proba_threshold = 0.7
+        self.logger.info(f"Classification probability threshold: {self.classification_proba_threshold}")
+        self.model_directories = {}
+
+        for label_name in self.label_names:
+            self.model_directories[label_name] = os.path.join("data", "models", self.run_date, self.state, label_name)
 
     def launch(self):
+        """Execute task processes"""
+
         self.logger.info(f"Launching task")
         self._get_df_prepared()
         self._train_models()
@@ -53,6 +106,8 @@ class ML_Task(Task):
         self.logger.info(f"Finished task")
 
     def _get_df_prepared(self):
+        """Prepare data for training"""
+
         gc.collect()
         prepared_directory = os.path.join("data", "etl", self.run_date, self.state, "3-prepared")
         make_directory(prepared_directory)
@@ -65,6 +120,10 @@ class ML_Task(Task):
             self.df_prepared = pd.read_parquet(prepared_path)
             self.df_prepared.date = pd.to_datetime(self.df_prepared.date)
         else:
+            self.logger.info("Loading existing encoded data")
+            encoded_directory = os.path.join("data", "etl", self.run_date, self.state, "2-encoded")
+            encoded_path = os.path.join(encoded_directory, "raw-encoded.gz")
+            self.df_raw_encoded = pd.read_parquet(encoded_path)
             self.logger.info("Preparing data")
 
             self.df_prepared = pd.concat(
@@ -165,6 +224,8 @@ class ML_Task(Task):
         ].drop_duplicates(ignore_index=True)
 
     def _train_models(self):
+        """Use AutoML to train classification and regression models in parallel"""
+
         gc.collect()
         remove_directory("mlruns")
 
@@ -349,6 +410,8 @@ class ML_Task(Task):
                         self.logger.info(f"MAPE: {mape_value:.2f}")
 
     def _get_df_predictions(self):
+        """Create and save predictions for sales and sale prices using latest models"""
+
         self.logger.info("Creating current data frame")
         date_filter = (datetime.strptime(self.run_date, "%Y-%m-%d") + relativedelta(months=+1)).replace(day=1)
         df_raw_encoded_filtered = self.df_raw_encoded.loc[(self.df_raw_encoded.last_sale_date < date_filter)]
@@ -589,3 +652,8 @@ class ML_Task(Task):
             engine.execute(prediction_table.insert().values(df_new_predictions.to_dict(orient="records")))
 
         engine.dispose()
+
+
+if __name__ == "__main__":
+    task = ML_Task()
+    task.launch()

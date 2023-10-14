@@ -1,3 +1,5 @@
+# Functions to load DAT data from different sources
+
 import os
 import pandas as pd
 import subprocess
@@ -6,7 +8,17 @@ from datetime import datetime
 from freeholdforecast.common.utils import download_file_from_source, make_directory
 
 
-def get_df_dat(county, landing_directory):
+def get_df_dat(county: str, landing_directory: str) -> pd.DataFrame:
+    """Load and format DAT data for given county
+
+    Args:
+        county (str): County identifier
+        landing_directory (str): Landing directory path
+
+    Returns:
+        pd.DataFrame: Formatted county data
+    """
+
     download_urls = {
         "ohio-butler": "https://www.butlercountyauditor.org/butler_oh_reports/AA407_files.zip",
         "ohio-clermont": "https://www.clermontauditor.org/wp-content/uploads/PublicAccess/Clermont_AA407.zip",
@@ -84,7 +96,16 @@ def get_df_dat(county, landing_directory):
     return df
 
 
-def get_df_asmt(data_directory):
+def get_df_asmt(data_directory: str) -> pd.DataFrame:
+    """Load and format assessment data
+
+    Args:
+        data_directory (str): Data directory path
+
+    Returns:
+        pd.DataFrame: Formatted assessment data
+    """
+
     df_asmt = pd.read_fwf(
         os.path.join(data_directory, "ASMT.DAT"),
         encoding="ISO-8859-1",
@@ -170,7 +191,16 @@ def get_df_asmt(data_directory):
     return df_asmt
 
 
-def get_df_legal(data_directory):
+def get_df_legal(data_directory: str) -> pd.DataFrame:
+    """Load and format legal data
+
+    Args:
+        data_directory (str): Data directory path
+
+    Returns:
+        pd.DataFrame: Formatted legal data
+    """
+
     df_legal = pd.read_fwf(
         os.path.join(data_directory, "LEGDAT.DAT"),
         encoding="ISO-8859-1",
@@ -328,7 +358,16 @@ def get_df_legal(data_directory):
     return df_legal
 
 
-def get_df_parcels(data_directory):
+def get_df_parcels(data_directory: str) -> pd.DataFrame:
+    """Load and format parcel data
+
+    Args:
+        data_directory (str): Data directory path
+
+    Returns:
+        pd.DataFrame: Formatted parcel data
+    """
+
     df_parcels = pd.read_fwf(
         os.path.join(data_directory, "PARDAT.DAT"),
         encoding="ISO-8859-1",
@@ -514,7 +553,16 @@ def get_df_parcels(data_directory):
     return df_parcels
 
 
-def get_df_sales(data_directory):
+def get_df_sales(data_directory: str) -> pd.DataFrame:
+    """Load and format sales data
+
+    Args:
+        data_directory (str): Data directory path
+
+    Returns:
+        pd.DataFrame: Formatted sales data
+    """
+
     df_sales = pd.read_fwf(
         os.path.join(data_directory, "SALES.DAT"),
         encoding="ISO-8859-1",
@@ -633,7 +681,16 @@ def get_df_sales(data_directory):
     return df_sales
 
 
-def get_df_dwell(data_directory):
+def get_df_dwell(data_directory: str) -> pd.DataFrame:
+    """Load and format dwelling data
+
+    Args:
+        data_directory (str): Data directory path
+
+    Returns:
+        pd.DataFrame: Formatted dwelling data
+    """
+
     butler_widths = [
         30,
         6,

@@ -1,10 +1,10 @@
+# Function to load and format data from supported counties
+
 import gc
 import numpy as np
 import os
 import pandas as pd
 
-from datetime import datetime
-from dateutil.relativedelta import relativedelta
 from functools import partial
 from multiprocessing import Pool
 
@@ -23,7 +23,17 @@ state_counties = {
 }
 
 
-def get_df_county(county, landing_directory):
+def get_df_county(county: str, landing_directory: str) -> pd.DataFrame:
+    """Load and format data for given county
+
+    Args:
+        county (str): County identifier
+        landing_directory (str): Landing directory path
+
+    Returns:
+        pd.DataFrame: Formatted county data
+    """
+
     if county in ["ohio-butler", "ohio-clermont"]:
         df = get_df_dat(county, landing_directory)
     elif county == "ohio-hamilton":
@@ -35,7 +45,17 @@ def get_df_county(county, landing_directory):
     return df
 
 
-def get_df_state(task, landing_directory):
+def get_df_state(task, landing_directory: str) -> pd.DataFrame:
+    """Load and format data for given state
+
+    Args:
+        task (Task): Task object
+        landing_directory (str): Landing directory path
+
+    Returns:
+        pd.DataFrame: Formatted state data
+    """
+
     df_counties = []
 
     for county in state_counties[task.state]:
@@ -54,7 +74,7 @@ def get_df_state(task, landing_directory):
 
     min_sale_price = 0
     df["last_sale_price"] = to_numeric(df.last_sale_price)
-    # df = df.loc[(df.last_sale_price.notna()) & (df.last_sale_price > min_sale_price)]
+    df = df.loc[(df.last_sale_price.notna()) & (df.last_sale_price > min_sale_price)]
 
     task.logger.info("Loading source data")
 
@@ -232,7 +252,7 @@ def get_df_state(task, landing_directory):
                         "last_sale_year",
                     ],
                     previous_column=column,
-                    min_sale_price=0,
+                    min_sale_price=min_sale_price,
                 ),
                 df_copy.loc[df_copy[column].notna()].to_dict("records"),
             )
@@ -248,32 +268,6 @@ def get_df_state(task, landing_directory):
     df_all["last_sale_year"] = df_all.last_sale_date.dt.year
     df_all = drop_duplicate_sale_years(df_all)
     df_all.sort_values(by="last_sale_date", inplace=True, ignore_index=True)
-
-    # task.logger.info("Imputing numeric data")
-
-    # for column in [
-    #     "YearBuilt",
-    #     "PropertyAddressFull",
-    #     "PropertyAddressZIP",
-    #     "SitusCounty",
-    #     "SitusStateCode",
-    #     "PropertyLatitude",
-    #     "PropertyLongitude",
-    #     "PropertyUseGroup",
-    #     "BathCount",
-    #     "BathPartialCount",
-    #     "BedroomsCount",
-    #     "AreaBuilding",
-    #     "AreaLotSF",
-    #     "StoriesCount",
-    #     "TaxMarketValueLand",
-    #     "TaxMarketValueImprovements",
-    #     "TaxMarketValueTotal",
-    #     "EstimatedValue",
-    #     "ConfidenceScore",
-    # ]:
-    #     df_all[column] = df_all.groupby("Parid", as_index=False)[column].transform(lambda x: x.bfill())
-    #     df_all[column] = df_all.groupby("Parid", as_index=False)[column].transform(lambda x: x.ffill())
 
     def is_business_owner(owner):
         owner_lower = "" if pd.isna(owner) else str(owner).lower()
@@ -331,7 +325,6 @@ def get_df_state(task, landing_directory):
         & (df_all.PropertyAddressFull.notna())
         & (df_all.TaxMarketValueTotal > 0)
         & (df_all.TaxMarketValueTotalRounded > 0)
-        # & (df_all.EstimatedValue > 0)
     ]
 
     df_all["LastPartyOwner1NameFull"] = df_all.groupby("Parid")["PartyOwner1NameFull"].shift()
@@ -353,9 +346,6 @@ def get_df_state(task, landing_directory):
     return df_all.astype(str)[
         [
             "Parid",
-            # "Owner Name 1",
-            # "Last Owner Name 1",
-            # "Last Last Owner Name 1",
             "YearBuilt",
             "PropertyAddressFull",
             "PropertyAddressCity",
@@ -389,8 +379,6 @@ def get_df_state(task, landing_directory):
             "TaxMarketValueTotalRounded",
             "EstimatedValueRounded",
             "last_sale_priceRounded",
-            # "ValidSale",
-            # "DeedType",
             "business_owner",
             "next_business_owner",
             "same_owner",

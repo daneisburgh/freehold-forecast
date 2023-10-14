@@ -1,9 +1,32 @@
-def get_df_additional_data(row, all_columns, ignore_columns, previous_column, min_sale_price):
+# Static functions to be run in a parallel processes of different modules
+
+import pandas as pd
+
+
+def get_df_additional_data(
+    row: dict,
+    all_columns: list,
+    ignore_columns: list,
+    previous_column: str,
+    min_sale_price: int,
+) -> dict:
+    """Create object with additional historical assessor data based last sale date or year built
+
+    Args:
+        row (dict): Row from historical data frame
+        all_columns (list): Columns in historical data frame
+        ignore_columns (list): Columns to ignore in historical data frame
+        previous_column (str): Previous column to assess
+        min_sale_price (int): Min sale price of historical sale
+
+    Returns:
+        dict: New row object to be included in historical data
+    """
+
     import numpy as np
     import pandas as pd
 
-    from datetime import datetime, timedelta
-
+    from datetime import datetime
     from freeholdforecast.common.utils import date_string, to_numeric
 
     additional_object = {}
@@ -23,11 +46,23 @@ def get_df_additional_data(row, all_columns, ignore_columns, previous_column, mi
 
 
 def get_parcel_prepared_data(
-    parcel_ids,
-    df_raw_encoded,
+    parcel_ids: list,
+    df_raw_encoded: pd.DataFrame,
     train_start_date,
-    min_months_since_last_sale,
-):
+    min_months_since_last_sale: int,
+) -> pd.DataFrame:
+    """Prepare training data for a given set of parcels
+
+    Args:
+        parcel_ids (list): Parcels to prepare
+        df_raw_encoded (pd.DataFrame): Raw encoded parcel data
+        train_start_date (datetime): Training data start date
+        min_months_since_last_sale (int): Minimum months since last parcel sale
+
+    Returns:
+        pd.DataFrame: Prepared parcel data
+    """
+
     import math
     import pandas as pd
 
@@ -58,15 +93,11 @@ def get_parcel_prepared_data(
     prepared_data = []
 
     for parcel_id in parcel_ids:
-        # months_since_year_built = 0
         total_sales = 0
 
         df_parcel_sales = df_raw_encoded.loc[df_raw_encoded.Parid == parcel_id].sort_values(
             by="last_sale_date", ascending=True, ignore_index=True
         )
-
-        # df_parcel_sales["next_sale_date"] = df_parcel_sales.last_sale_date.shift(-1)
-        # df_parcel_sales["next_sale_price"] = df_parcel_sales.last_sale_price.shift(-1)
 
         for row_index, row in df_parcel_sales.iterrows():
             months_since_last_sale = 0
@@ -78,12 +109,10 @@ def get_parcel_prepared_data(
 
             for date_index, date in enumerate(months):
                 if (total_months - 1) > date_index:
-                    # if date >= train_start_date and months_since_last_sale >= min_months_since_last_sale:
                     if date >= train_start_date and months_since_last_sale >= (min_months_since_last_sale * 12):
 
                         def has_next_sale(date_diff, has_next_sale_date):
                             return 1 if date_index >= (total_months - date_diff - 1) and has_next_sale_date else 0
-                            # return 1 if date_index == (total_months - date_diff - 1) and has_next_sale_date else 0
 
                         months_since_last_sale_floor = math.floor(months_since_last_sale / 12)
                         max_months_since_last_sale_floor = 25
@@ -98,15 +127,12 @@ def get_parcel_prepared_data(
                             "date": date.replace(day=1),
                             "month": date.month,
                             "months_since_last_sale": months_since_last_sale,
-                            # "months_since_year_built": months_since_year_built,
                             "months_since_last_sale_max": (
                                 months_since_last_sale_floor
                                 if months_since_last_sale_floor < max_months_since_last_sale_floor
                                 else max_months_since_last_sale_floor
                             ),
                             "months_since_last_sale": months_since_last_sale_floor,
-                            # "months_since_last_sale": math.floor(months_since_last_sale / 12),
-                            # "months_since_year_built": math.floor(months_since_year_built / 12),
                         }
 
                         for column in list(df_raw_encoded.columns):
@@ -115,15 +141,35 @@ def get_parcel_prepared_data(
                         prepared_data.append(prepared_data_object)
 
                     months_since_last_sale += 1
-                    # months_since_year_built += 1
-
-                    # if date_index == total_months - 2:
-                    #     months_since_last_sale = 0
 
     return pd.DataFrame(prepared_data)
 
 
-def train_model(training_type, task, label_name, n_jobs, model_directory, X_train, y_train, X_test, y_test):
+def train_model(
+    training_type: str,
+    task,
+    label_name: str,
+    n_jobs: int,
+    model_directory: str,
+    X_train: list,
+    y_train: list,
+    X_test: list,
+    y_test: list,
+):
+    """Train AutoML classification or regresion model
+
+    Args:
+        training_type (str): Classification or regression
+        task (Task): Task object
+        label_name (str): Column to train model to predict
+        n_jobs (int): Total training jobs to run in parallel
+        model_directory (str): Model directory path
+        X_train (list): Training feature data
+        y_train (list): Training label data
+        X_test (list): Testing feature data
+        y_test (list): Testing label data
+    """
+
     import json
     import mlflow
     import os
@@ -202,7 +248,7 @@ def train_model(training_type, task, label_name, n_jobs, model_directory, X_trai
                 resampling_strategy_arguments=resampling_strategy_arguments,
             )
 
-        model.fit(X_train, y_train)
+        model.fit(X_train, y_train)  # type: ignore
 
         if os.path.exists(model_directory):
             shutil.rmtree(model_directory)
@@ -241,19 +287,19 @@ def train_model(training_type, task, label_name, n_jobs, model_directory, X_trai
         mlflow.end_run()
 
 
-def get_parcel_months_since_last_sale(last_sale_date, current_date):
+def get_parcel_months_since_last_sale(last_sale_date, current_date) -> int:
     from freeholdforecast.common.utils import diff_month
 
     return diff_month(last_sale_date, current_date)
 
 
-def get_parcel_months_since_last_sale_max(last_sale_date, current_date):
+def get_parcel_months_since_last_sale_max(last_sale_date, current_date) -> int:
     months_since_last_sale_max = 25
     months_since_last_sale = get_parcel_months_since_last_sale(last_sale_date, current_date)
     return months_since_last_sale if months_since_last_sale < months_since_last_sale_max else months_since_last_sale_max
 
 
-def get_parcel_months_since_year_built(year_built, current_date):
+def get_parcel_months_since_year_built(year_built: int, current_date) -> float:
     import numpy as np
     import pandas as pd
 

@@ -1,3 +1,5 @@
+# Abstract task class for use in workflow processes
+
 import logging
 import os
 import pathlib
@@ -32,7 +34,7 @@ def get_dbutils(
 
 class Task(ABC):
     """
-    This is an abstract class that provides handy interfaces to implement workloads (e.g. jobs or job tasks).
+    This is an abstract class that provides handy interfaces to implement workloads.
     Create a child from this class and implement the abstract launch method.
     Class provides access to the following useful objects:
     * self.spark is a SparkSession
