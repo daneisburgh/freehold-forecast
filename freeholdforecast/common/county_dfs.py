@@ -57,35 +57,35 @@ def get_df_state(task, landing_directory):
     df["last_sale_price"] = to_numeric(df.last_sale_price)
     # df = df.loc[(df.last_sale_price.notna()) & (df.last_sale_price > min_sale_price)]
 
-    task.logger.info("Loading ATTOM data")
+    task.logger.info("Loading source data")
 
-    def get_df_attom(data_path_value, date_column):
+    def get_df_source(data_path_value, date_column):
         dfs = []
-        attom_data_path = os.path.join(landing_directory, "attom")
+        source_data_path = os.path.join(landing_directory, "source")
 
-        for r, d, f in os.walk(attom_data_path):
+        for r, d, f in os.walk(source_data_path):
             if len(f) > 0:
                 file_name = f[0].split(".")[0]
-                data_path = os.path.join(attom_data_path, file_name, file_name + ".txt")
+                data_path = os.path.join(source_data_path, file_name, file_name + ".txt")
 
                 if data_path_value in data_path:
                     dfs.append(pd.read_csv(data_path, sep="\t", low_memory=False))
 
         return (
             pd.concat(dfs, copy=False, ignore_index=True)
-            .sort_values(by=["[ATTOM ID]", date_column], ascending=True, ignore_index=True)
-            .drop_duplicates(subset="[ATTOM ID]", keep="last", ignore_index=True)
+            .sort_values(by=["source_id", date_column], ascending=True, ignore_index=True)
+            .drop_duplicates(subset="source_id", keep="last", ignore_index=True)
         )
 
     def format_parid(df, parid_column):
         return df[parid_column].replace("(-|\.)", "", regex=True)
 
-    df_assessor = get_df_attom("ASSESSOR", "AssrLastUpdated")
+    df_assessor = get_df_source("ASSESSOR", "AssrLastUpdated")
     df_assessor["ParidFormatted"] = format_parid(df_assessor, "ParcelNumberRaw")
-    df_avm = get_df_attom("AVM", "LastUpdateDate")
+    df_avm = get_df_source("AVM", "LastUpdateDate")
 
     assessor_columns = [
-        "[ATTOM ID]",
+        "source_id",
         "ParidFormatted",
         "AssessorLastSaleDate",
         "AssessorLastSaleAmount",
@@ -114,13 +114,13 @@ def get_df_state(task, landing_directory):
     ]
 
     avm_columns = [
-        "[ATTOM ID]",
+        "source_id",
         "ValuationDate",
         "EstimatedValue",
         "ConfidenceScore",
     ]
 
-    df_assessor_avm = pd.merge(df_assessor[assessor_columns], df_avm[avm_columns], on="[ATTOM ID]", how="left")
+    df_assessor_avm = pd.merge(df_assessor[assessor_columns], df_avm[avm_columns], on="source_id", how="left")
     df_assessor_avm["AssessorLastSaleAmount"] = df_assessor_avm.AssessorLastSaleAmount.apply(
         lambda x: x if x > 0 else np.nan
     )
@@ -142,7 +142,7 @@ def get_df_state(task, landing_directory):
     df["ParidFormatted"] = format_parid(df, "Parid")
     df = pd.merge(df, df_assessor_avm, on="ParidFormatted", how="left")
     df["Parid"] = df.Parid.fillna(df.ParidFormatted)
-    df = df.drop(columns=["[ATTOM ID]", "ParidFormatted"])
+    df = df.drop(columns=["source_id", "ParidFormatted"])
 
     del df_assessor
     del df_avm
